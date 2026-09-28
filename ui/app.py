@@ -12,6 +12,7 @@ FAILURE_HINT = (
     "search the api logs for the correlation id below."
 )
 UNREACHABLE_HINT = "Nothing was answered. Check that the api service is running."
+WAITING = "Searching the policy documents and drafting an answer…"
 
 
 @st.cache_resource
@@ -68,14 +69,31 @@ def _render_failure(failure: Failure) -> None:
         st.error(UNREACHABLE_HINT, title=failure.message)
 
 
-def _render_turn(question: str, result: Answer | Failure) -> None:
+def _render_question(question: str) -> None:
     with st.chat_message("user"):
         st.markdown(question)
+
+
+def _render_result(result: Answer | Failure) -> None:
+    if isinstance(result, Answer):
+        _render_answer(result)
+    else:
+        _render_failure(result)
+
+
+def _render_turn(question: str, result: Answer | Failure) -> None:
+    _render_question(question)
     with st.chat_message("assistant"):
-        if isinstance(result, Answer):
-            _render_answer(result)
-        else:
-            _render_failure(result)
+        _render_result(result)
+
+
+def _ask_and_render(client: ApiClient, question: str) -> Answer | Failure:
+    _render_question(question)
+    with st.chat_message("assistant"):
+        with st.spinner(WAITING, show_time=True):
+            result = client.ask(question)
+        _render_result(result)
+    return result
 
 
 def _sidebar(client: ApiClient) -> None:
@@ -109,8 +127,7 @@ history = st.session_state.setdefault("history", [])
 for past_question, past_result in history:
     _render_turn(past_question, past_result)
 
-question = st.chat_input("Ask about the policies…") or st.session_state.pop("pending", None)
+typed = st.chat_input("Ask about the policies…", submit_mode="disable")
+question = typed or st.session_state.pop("pending", None)
 if question:
-    result = client.ask(question)
-    history.append((question, result))
-    _render_turn(question, result)
+    history.append((question, _ask_and_render(client, question)))
