@@ -8,6 +8,7 @@ import os
 import re
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Sequence
 
 import pytest
@@ -18,7 +19,7 @@ from app import api as api_module
 from app.chunking import chunk_text
 from app.config import Config, load_config
 from app.logging_setup import JsonFormatter, configure_logging
-from app.providers import with_retries
+from app.providers import EmbeddingProvider, GenerationProvider, with_retries
 from app.rag import RagService
 from app.store import CollectionInfo, RetrievedChunk
 
@@ -119,6 +120,32 @@ class FakeGenerator:
         return len(self.prompts)
 
 
+class _FakeGenaiModels:
+    def __init__(self, answer: str) -> None:
+        self._answer = answer
+
+    def embed_content(self, *, model: str, contents: list[str], config: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            embeddings=[SimpleNamespace(values=_fake_vector(text)) for text in contents]
+        )
+
+    def generate_content(self, *, model: str, contents: str, config: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            text=self._answer,
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=len(contents.split()),
+                candidates_token_count=len(self._answer.split()),
+            ),
+        )
+
+
+class FakeGenaiClient:
+    """Stands in for google.genai.Client, so the real Gemini adapters run end to end."""
+
+    def __init__(self, *, answer: str = "A grounded answer.") -> None:
+        self.models = _FakeGenaiModels(answer)
+
+
 class InMemoryStore:
     def __init__(self, *, embedding_model: str = "fake-embed", dimensions: int = _DIMENSIONS) -> None:
         self.rows: list[tuple] = []
@@ -202,7 +229,7 @@ def with_retrieval(config: Config, **changes) -> Config:
     return replace(config, retrieval=replace(config.retrieval, **changes))
 
 
-def seed_corpus(store: InMemoryStore, embedder: FakeEmbedder, config: Config) -> None:
+def seed_corpus(store: InMemoryStore, embedder: EmbeddingProvider, config: Config) -> None:
     chunks = []
     for path in sorted(CORPUS_DIR.glob("*.md")):
         produced, _ = chunk_text(
@@ -217,7 +244,7 @@ def seed_corpus(store: InMemoryStore, embedder: FakeEmbedder, config: Config) ->
 
 
 def wire_app(
-    config: Config, store: InMemoryStore, embedder: FakeEmbedder, generator: FakeGenerator
+    config: Config, store: InMemoryStore, embedder: EmbeddingProvider, generator: GenerationProvider
 ) -> TestClient:
     api_module.app.state.services = api_module.Services(
         config=config,

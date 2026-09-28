@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import random
 import time
-from typing import Callable, Literal, Protocol, Sequence, TypeVar
+from typing import Any, Callable, Literal, Protocol, Sequence, TypeVar
 
 from app.config import Config
 from app.logging_setup import Timer, get_logger, log_event
@@ -103,16 +103,21 @@ def _wait_before_retry(stage: Stage, attempt: int, backoff_base_ms: int, exc: Ex
     time.sleep(delay_ms / 1000.0)
 
 
+def _gemini_client(config: Config) -> Any:
+    from google import genai
+
+    return genai.Client(api_key=config.gemini_api_key)
+
+
 class GeminiEmbeddingProvider:
     """Queries and documents use different task types: Gemini retrieval embeddings are asymmetric."""
 
-    def __init__(self, config: Config) -> None:
-        from google import genai
+    def __init__(self, config: Config, client: Any | None = None) -> None:
         from google.genai import types
 
         self._types = types
         self._config = config
-        self._client = genai.Client(api_key=config.gemini_api_key)
+        self._client = client or _gemini_client(config)
         self._model = config.embedding.model
         self._dimensions = config.embedding.dimensions
 
@@ -156,13 +161,12 @@ class GeminiEmbeddingProvider:
 
 
 class GeminiGenerationProvider:
-    def __init__(self, config: Config) -> None:
-        from google import genai
+    def __init__(self, config: Config, client: Any | None = None) -> None:
         from google.genai import types
 
         self._types = types
         self._config = config
-        self._client = genai.Client(api_key=config.gemini_api_key)
+        self._client = client or _gemini_client(config)
         self._model = config.generation.model
 
     def generate(self, prompt: str) -> str:

@@ -14,14 +14,14 @@ from pytest_bdd import given, parsers, scenarios, then, when
 
 from app.config import ConfigError, load_config
 from app.logging_setup import configure_logging, get_logger, log_event
-from app.providers import ProviderError
+from app.providers import GeminiEmbeddingProvider, GeminiGenerationProvider, ProviderError
 from app.rag import INSUFFICIENT_CONTEXT_ANSWER
 from app.store import CollectionInfo, EmbeddingModelMismatch, VectorStore
 from tests.conftest import (
     FEATURES_DIR,
     LEXICAL_FLOOR,
     REPO_ROOT,
-    FakeEmbedder,
+    FakeGenaiClient,
     FakeGenerator,
     InMemoryStore,
     seed_corpus,
@@ -35,16 +35,16 @@ COMPOSE = ["docker", "compose"]
 
 
 @pytest.fixture
-def ctx(base_config, log_capture, write_config, monkeypatch, tmp_path):
+def ctx(base_config, log_capture, write_config, monkeypatch):
+    client = FakeGenaiClient(answer="Answer text CANARY-ANSWER-ONLY.")
     return {
         "config": base_config,
         "logs": log_capture,
         "write_config": write_config,
         "monkeypatch": monkeypatch,
-        "tmp_path": tmp_path,
         "store": InMemoryStore(),
-        "embedder": FakeEmbedder(),
-        "generator": FakeGenerator(answer="Answer text CANARY-ANSWER-ONLY."),
+        "embedder": GeminiEmbeddingProvider(base_config, client=client),
+        "generator": GeminiGenerationProvider(base_config, client=client),
         "overrides": {},
         "error": None,
         "response": None,
@@ -233,10 +233,17 @@ def _post_canary(ctx, canary):
     )
 
 
+def _request_events(ctx, event: str) -> list[dict]:
+    cid = ctx["response"].json()["correlation_id"]
+    return [record for record in ctx["logs"].events(event) if record.get("correlation_id") == cid]
+
+
 @then("a log line reports embedding latency")
 def _embedding_latency_logged(ctx):
-    # The fake embedder bypasses the adapter that logs latency; only the path can be checked here.
-    assert ctx["logs"].events("retrieval.result")
+    events = _request_events(ctx, "embedding.latency")
+    assert len(events) == 1, events
+    assert events[0]["duration_ms"] >= 0
+    assert events[0]["batch_size"] == 1
 
 
 @then("a log line reports retrieval outcome with top score")
@@ -248,7 +255,10 @@ def _retrieval_logged(ctx):
 
 @then("a log line reports LLM latency and model name")
 def _llm_latency_logged(ctx):
-    assert ctx["generator"].call_count == 1
+    events = _request_events(ctx, "llm.latency")
+    assert len(events) == 1, events
+    assert events[0]["duration_ms"] >= 0
+    assert events[0]["model"] == ctx["config"].generation.model
 
 
 @then("no log line is emitted for non-critical internal steps")
