@@ -1,0 +1,51 @@
+# RAG PoC configuration — FR-CFG-01: all hyperparameters live here, not in code.
+# Secrets are NEVER in this file. See .env.example (FR-CFG-02).
+
+corpus:
+  source_dir: corpus
+  supported_extensions: [".md", ".markdown", ".txt"]
+
+chunking:
+  # FR-ING-02..04a
+  paragraph_delimiter: "\n\n"
+  min_chunk_chars: 200
+  max_chunk_chars: 1500
+
+embedding:
+  # FR-ING-05, FR-CFG-04: ingestion and query both read this key.
+  model: "gemini-embedding-001"
+  dimensions: 1536
+  embed_batch_size: 32
+  # Gemini asymmetric embedding: documents and queries use different task types.
+  document_task_type: "RETRIEVAL_DOCUMENT"
+  query_task_type: "RETRIEVAL_QUERY"
+
+retrieval:
+  top_k: 5
+  max_top_k: 20
+  # FR-API-06: cosine similarity floor below which we refuse rather than generate.
+  min_similarity: 0.35
+  distance_metric: "cosine"
+
+generation:
+  model: "gemini-2.5-flash"
+  temperature: 0.0
+  max_output_tokens: 1024
+  prompt_template_path: "prompts/answer.md"
+
+runtime:
+  max_retries: 3
+  backoff_base_ms: 500
+  request_timeout_ms: 30000
+  max_question_chars: 2000
+
+logging:
+  level: "INFO"
+  # A-07: questions are logged (documentation-gap signal), answers never.
+  log_question_text: true
+  log_answer_text: false
+
+database:
+  # Overridden by DATABASE_URL env var when present (compose sets it).
+  url: "postgresql://rag:rag@localhost:5432/rag"
+  collection_name: "docs"

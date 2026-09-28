@@ -1,0 +1,11 @@
+# Note: the runtime Dockerfile COPYs only app/, config/, prompts/ and ingest.py, so
+# tests, docs and the corpus never enter the service image regardless. They are kept in
+# the build context because Dockerfile.test needs them.
+.git
+.gitignore
+.env
+.venv
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
