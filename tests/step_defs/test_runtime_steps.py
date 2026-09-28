@@ -261,7 +261,7 @@ def _key_masked(ctx, mask):
 
 @given("the LLM provider is failing")
 def _llm_failing(ctx):
-    ctx["generator"] = FakeGenerator(error=ProviderError("generate: upstream call failed"))
+    ctx["generator"] = FakeGenerator(error=ProviderError("generate", "upstream call failed"))
 
 
 @when("I POST a valid question")

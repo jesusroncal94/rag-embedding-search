@@ -170,34 +170,11 @@ def query(
         try:
             result = state.rag.answer(question, top_k)
         except ProviderTimeout as exc:
-            log_event(
-                logger,
-                "query.failed",
-                level=logging.ERROR,
-                stage=_stage_of(exc),
-                error_class=type(exc).__name__,
-            )
-            return _error(
-                status.HTTP_504_GATEWAY_TIMEOUT,
-                "upstream_timeout",
-                "The upstream model provider did not respond in time.",
-                cid,
-            )
-        except (ProviderError, StoreError) as exc:
-            log_event(
-                logger,
-                "query.failed",
-                level=logging.ERROR,
-                stage=_stage_of(exc),
-                error_class=type(exc).__name__,
-            )
-            return _error(
-                status.HTTP_502_BAD_GATEWAY,
-                "upstream_error",
-                "An upstream dependency failed. The correlation id identifies this request "
-                "in the service logs.",
-                cid,
-            )
+            return _upstream_failure(exc, exc.stage, status.HTTP_504_GATEWAY_TIMEOUT, cid)
+        except ProviderError as exc:
+            return _upstream_failure(exc, exc.stage, status.HTTP_502_BAD_GATEWAY, cid)
+        except StoreError as exc:
+            return _upstream_failure(exc, "retrieve", status.HTTP_502_BAD_GATEWAY, cid)
 
         payload = QueryResponse(
             answer=result.answer,
@@ -221,12 +198,29 @@ def query(
         )
 
 
-def _stage_of(exc: Exception) -> str:
-    message = str(exc)
-    for stage in ("embed", "retrieve", "generate"):
-        if message.startswith(f"{stage}:"):
-            return stage
-    return "retrieve" if isinstance(exc, StoreError) else "unknown"
+_UPSTREAM_ERRORS = {
+    status.HTTP_504_GATEWAY_TIMEOUT: (
+        "upstream_timeout",
+        "The upstream model provider did not respond in time.",
+    ),
+    status.HTTP_502_BAD_GATEWAY: (
+        "upstream_error",
+        "An upstream dependency failed. The correlation id identifies this request "
+        "in the service logs.",
+    ),
+}
+
+
+def _upstream_failure(exc: Exception, stage: str, status_code: int, cid: str) -> JSONResponse:
+    log_event(
+        logger,
+        "query.failed",
+        level=logging.ERROR,
+        stage=stage,
+        error_class=type(exc).__name__,
+    )
+    error, detail = _UPSTREAM_ERRORS[status_code]
+    return _error(status_code, error, detail, cid)
 
 
 @app.exception_handler(RequestValidationError)

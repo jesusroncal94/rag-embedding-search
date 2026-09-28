@@ -145,7 +145,7 @@ class FakeGenerator:
 
 
 class InMemoryStore:
-    """VectorStore-compatible double backed by a list.
+    """ChunkRetriever and VectorStore double backed by a list.
 
     Mirrors the real store's contract exactly — including cosine similarity and the
     collection-metadata guard — so that step definitions bind to behaviour rather than
@@ -330,7 +330,7 @@ def corpus_dir() -> Path:
 
 def make_error(kind: str) -> Exception:
     return {
-        "auth": ProviderAuthError("embed: credentials rejected (HTTP 401)"),
-        "timeout": ProviderTimeout("generate: upstream timed out"),
-        "provider": ProviderError("generate: upstream call failed"),
+        "auth": ProviderAuthError("embed", "credentials rejected (HTTP 401)"),
+        "timeout": ProviderTimeout("generate", "upstream timed out"),
+        "provider": ProviderError("generate", "upstream call failed"),
     }[kind]

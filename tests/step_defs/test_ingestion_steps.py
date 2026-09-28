@@ -141,7 +141,7 @@ def _transient_failures(ctx, n):
 def _permanent_failure(ctx):
     _write_doc(ctx, "doc.md", "c" * 400)
     ctx["embedder"] = FakeEmbedder(
-        failures=[ProviderAuthError("embed: credentials rejected (HTTP 401)") for _ in range(10)]
+        failures=[ProviderAuthError("embed", "credentials rejected (HTTP 401)") for _ in range(10)]
     )
 
 

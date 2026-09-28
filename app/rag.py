@@ -4,11 +4,12 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from app.config import Config
 from app.logging_setup import get_logger, log_event
 from app.providers import EmbeddingProvider, GenerationProvider
-from app.store import RetrievedChunk, VectorStore
+from app.store import RetrievedChunk
 
 logger = get_logger(__name__)
 
@@ -39,6 +40,10 @@ class Answer:
     answer: str
     citations: list[Citation]
     grounded: bool
+
+
+class ChunkRetriever(Protocol):
+    def search(self, query_embedding: list[float], top_k: int) -> list[RetrievedChunk]: ...
 
 
 def detect_injection(text: str) -> list[str]:
@@ -78,7 +83,7 @@ class RagService:
     def __init__(
         self,
         config: Config,
-        store: VectorStore,
+        store: ChunkRetriever,
         embedder: EmbeddingProvider,
         generator: GenerationProvider,
     ) -> None:

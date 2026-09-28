@@ -9,7 +9,7 @@ from pathlib import Path
 from app.chunking import Chunk, chunk_text, discover_documents
 from app.config import ConfigError, load_config
 from app.logging_setup import configure_logging, correlation_context, get_logger, log_event
-from app.providers import GeminiEmbeddingProvider, ProviderError, ProviderTimeout
+from app.providers import GeminiEmbeddingProvider, ProviderError
 from app.store import StoreError, VectorStore
 
 logger = get_logger(__name__)
@@ -116,12 +116,12 @@ def main(argv: list[str] | None = None) -> int:
             configure_logging()
             log_event(logger, "ingest.config_error", level=logging.ERROR, detail=str(exc))
             return 2
-        except (ProviderError, ProviderTimeout) as exc:
+        except ProviderError as exc:
             log_event(
                 logger,
                 "ingest.failed",
                 level=logging.ERROR,
-                stage="embed",
+                stage=exc.stage,
                 error_class=type(exc).__name__,
                 detail=str(exc),
             )

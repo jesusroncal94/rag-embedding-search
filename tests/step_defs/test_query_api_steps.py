@@ -120,12 +120,12 @@ def _replace_retrieval(config: Config, **changes) -> Config:
 
 @given("the Gemini generation endpoint returns a 500")
 def _generation_500(ctx):
-    ctx["generator"] = FakeGenerator(error=ProviderError("generate: upstream call failed"))
+    ctx["generator"] = FakeGenerator(error=ProviderError("generate", "upstream call failed"))
 
 
 @given(parsers.parse('the Gemini generation endpoint does not respond within "runtime.request_timeout_ms"'))
 def _generation_timeout(ctx):
-    ctx["generator"] = FakeGenerator(error=ProviderTimeout("generate: upstream timed out"))
+    ctx["generator"] = FakeGenerator(error=ProviderTimeout("generate", "upstream timed out"))
 
 
 @given("the vector database is unreachable")

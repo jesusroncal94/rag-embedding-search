@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import random
 import time
-from typing import Protocol, Sequence
+from typing import Callable, Literal, Protocol, Sequence, TypeVar
 
 from app.config import Config
 from app.logging_setup import Timer, get_logger, log_event
@@ -12,12 +12,17 @@ logger = get_logger(__name__)
 
 _RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504})
 
-
-class ProviderTimeout(RuntimeError):
-    pass
+Stage = Literal["embed", "generate"]
+T = TypeVar("T")
 
 
 class ProviderError(RuntimeError):
+    def __init__(self, stage: Stage, message: str) -> None:
+        super().__init__(f"{stage}: {message}")
+        self.stage = stage
+
+
+class ProviderTimeout(ProviderError):
     pass
 
 
@@ -58,35 +63,44 @@ def _retryable(exc: Exception) -> bool:
     return _is_timeout(exc)
 
 
-def with_retries(operation, *, stage: str, max_retries: int, backoff_base_ms: int):
-    last: Exception | None = None
-    for attempt in range(1, max_retries + 1):
+def with_retries(
+    operation: Callable[[], T], *, stage: Stage, max_retries: int, backoff_base_ms: int
+) -> T:
+    if max_retries < 1:
+        raise ValueError("max_retries must be at least 1")
+    attempt = 1
+    while True:
         try:
             return operation()
         except Exception as exc:  # noqa: BLE001
-            last = exc
             status = _status_of(exc)
-            if status == 401 or status == 403:
-                raise ProviderAuthError(f"{stage}: credentials rejected (HTTP {status})") from exc
+            if status in (401, 403):
+                raise ProviderAuthError(stage, f"credentials rejected (HTTP {status})") from exc
             if not _retryable(exc) or attempt == max_retries:
-                break
-            delay_ms = backoff_base_ms * (2 ** (attempt - 1))
-            delay_ms += random.uniform(0, backoff_base_ms * 0.1)
-            log_event(
-                logger,
-                "provider.retry",
-                level=logging.WARNING,
-                stage=stage,
-                attempt=attempt,
-                backoff_ms=int(delay_ms),
-                error_class=type(exc).__name__,
-            )
-            time.sleep(delay_ms / 1000.0)
+                raise _as_provider_error(stage, exc) from exc
+            _wait_before_retry(stage, attempt, backoff_base_ms, exc)
+            attempt += 1
 
-    assert last is not None
-    if _is_timeout(last):
-        raise ProviderTimeout(f"{stage}: upstream timed out") from last
-    raise ProviderError(f"{stage}: upstream call failed ({type(last).__name__})") from last
+
+def _as_provider_error(stage: Stage, exc: Exception) -> ProviderError:
+    if _is_timeout(exc):
+        return ProviderTimeout(stage, "upstream timed out")
+    return ProviderError(stage, f"upstream call failed ({type(exc).__name__})")
+
+
+def _wait_before_retry(stage: Stage, attempt: int, backoff_base_ms: int, exc: Exception) -> None:
+    delay_ms = backoff_base_ms * (2 ** (attempt - 1))
+    delay_ms += random.uniform(0, backoff_base_ms * 0.1)
+    log_event(
+        logger,
+        "provider.retry",
+        level=logging.WARNING,
+        stage=stage,
+        attempt=attempt,
+        backoff_ms=int(delay_ms),
+        error_class=type(exc).__name__,
+    )
+    time.sleep(delay_ms / 1000.0)
 
 
 class GeminiEmbeddingProvider:
@@ -130,7 +144,7 @@ class GeminiEmbeddingProvider:
         )
         if len(vectors) != len(texts):
             raise ProviderError(
-                f"embed: provider returned {len(vectors)} vectors for {len(texts)} inputs"
+                "embed", f"provider returned {len(vectors)} vectors for {len(texts)} inputs"
             )
         return vectors
 
@@ -184,5 +198,5 @@ class GeminiGenerationProvider:
             output_tokens=getattr(usage, "candidates_token_count", None),
         )
         if not text:
-            raise ProviderError("generate: provider returned an empty response")
+            raise ProviderError("generate", "provider returned an empty response")
         return text
