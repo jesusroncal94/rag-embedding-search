@@ -49,8 +49,9 @@ Check the stack any time with `curl http://localhost:8000/health`.
 ## Using the UI
 
 `docker compose up` also starts a Streamlit page at <http://localhost:8501>, once the API
-is healthy. The sidebar holds the questions from [What to try](#what-to-try), one click
-each.
+is healthy. The questions from [What to try](#what-to-try) sit as suggestions above the
+chat input, one click each. While an answer is pending, the suggestions and the input
+are disabled, so a second question cannot interrupt the first.
 
 Every answer shows what happened rather than a verdict:
 

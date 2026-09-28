@@ -96,13 +96,25 @@ def _ask_and_render(client: ApiClient, question: str) -> Answer | Failure:
     return result
 
 
+def _take_suggestion() -> None:
+    st.session_state["pending"] = st.session_state["suggestion"]
+    st.session_state["suggestion"] = None
+
+
+def _suggestions(*, busy: bool, first: bool) -> None:
+    st.pills(
+        "Try one of these" if first else "Or try another",
+        DEMO_QUESTIONS,
+        key="suggestion",
+        on_change=_take_suggestion,
+        disabled=busy,
+    )
+
+
 def _sidebar(client: ApiClient) -> None:
     with st.sidebar:
-        st.subheader("Try these")
+        st.subheader("About")
         st.caption("Each question is answered on its own; there is no follow-up memory.")
-        for question in DEMO_QUESTIONS:
-            if st.button(question, key=question, width="stretch"):
-                st.session_state["pending"] = question
         health = client.health()
         state = "healthy" if health.reachable else "unreachable"
         st.caption(f"api · {state} · {health.chunk_count} chunks")
@@ -127,7 +139,14 @@ history = st.session_state.setdefault("history", [])
 for past_question, past_result in history:
     _render_turn(past_question, past_result)
 
-typed = st.chat_input("Ask about the policies…", submit_mode="disable")
-question = typed or st.session_state.pop("pending", None)
+suggested = st.session_state.pop("pending", None)
+typed = st.chat_input(
+    "Ask about the policies…", submit_mode="disable", disabled=suggested is not None
+)
+question = typed or suggested
+current_turn = st.container()
+_suggestions(busy=bool(question), first=not history)
 if question:
-    history.append((question, _ask_and_render(client, question)))
+    with current_turn:
+        history.append((question, _ask_and_render(client, question)))
+    st.rerun()

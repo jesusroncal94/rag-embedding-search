@@ -50,8 +50,8 @@ def app(monkeypatch: pytest.MonkeyPatch) -> AppTest:
     return AppTest.from_file(str(APP), default_timeout=15).run()
 
 
-def test_a_demo_question_shows_the_answer_with_its_sources(app: AppTest) -> None:
-    app.sidebar.button(key="Can I close my account?").click().run()
+def test_a_suggested_question_shows_the_answer_with_its_sources(app: AppTest) -> None:
+    app.pills(key="suggestion").set_value("Can I close my account?").run()
 
     rendered = [element.value for element in app.markdown]
     assert ANSWER["answer"] in rendered
