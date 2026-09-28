@@ -1,13 +1,3 @@
-"""Ingestion: read -> chunk -> embed -> index (FR-ING-01..10).
-
-Run as a one-shot command (A-04):
-
-    docker compose run --rm ingest
-    python -m app.ingest [--config config/config.yaml] [--source corpus]
-
-Exits non-zero on permanent failure, leaving the previous index intact (FR-ING-08).
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -19,12 +9,7 @@ from pathlib import Path
 from app.chunking import Chunk, chunk_text, discover_documents
 from app.config import ConfigError, load_config
 from app.logging_setup import configure_logging, correlation_context, get_logger, log_event
-from app.providers import (
-    GeminiEmbeddingProvider,
-    ProviderAuthError,
-    ProviderError,
-    ProviderTimeout,
-)
+from app.providers import GeminiEmbeddingProvider, ProviderError, ProviderTimeout
 from app.store import StoreError, VectorStore
 
 logger = get_logger(__name__)
@@ -35,6 +20,10 @@ def _batched(items: list, size: int):
         yield items[start : start + size]
 
 
+def _citation_path(path: Path, corpus_root: Path) -> str:
+    return path.relative_to(corpus_root).as_posix()
+
+
 def run(config_path: str | None = None, source_dir: str | None = None) -> int:
     started = time.perf_counter()
     config = load_config(config_path)
@@ -43,7 +32,6 @@ def run(config_path: str | None = None, source_dir: str | None = None) -> int:
     source = source_dir or config.corpus.source_dir
     documents, skipped = discover_documents(source, config.corpus.supported_extensions)
 
-    # FR-ING-01a: unsupported files are noted, never fatal.
     for path in skipped:
         log_event(
             logger,
@@ -62,13 +50,10 @@ def run(config_path: str | None = None, source_dir: str | None = None) -> int:
         )
         return 1
 
-    # --- Chunk every document before embedding anything. -------------------------
     all_chunks: list[Chunk] = []
     for path in documents:
         text = path.read_text(encoding="utf-8")
-        # Store the path relative to the corpus root: citations must be stable
-        # identifiers, not absolute paths that differ between host and container.
-        relative = str(path.relative_to(Path(source))).replace("\\", "/")
+        relative = _citation_path(path, Path(source))
         chunks, warnings = chunk_text(
             text,
             source_path=relative,
@@ -77,7 +62,6 @@ def run(config_path: str | None = None, source_dir: str | None = None) -> int:
             paragraph_delimiter=config.chunking.paragraph_delimiter,
         )
         for warning in warnings:
-            # FR-ING-04a
             log_event(logger, "ingest.hard_split", level=logging.WARNING, detail=warning)
         log_event(
             logger,
@@ -92,7 +76,6 @@ def run(config_path: str | None = None, source_dir: str | None = None) -> int:
         log_event(logger, "ingest.no_chunks", level=logging.ERROR, documents=len(documents))
         return 1
 
-    # --- Embed in batches (FR-ING-07), then write once (FR-ING-08/09). -----------
     store = VectorStore(config)
     store.initialise()
     embedder = GeminiEmbeddingProvider(config)
@@ -106,7 +89,6 @@ def run(config_path: str | None = None, source_dir: str | None = None) -> int:
     chunk_count = store.replace_collection(all_chunks, vectors)
 
     duration_ms = int((time.perf_counter() - started) * 1000)
-    # FR-ING-10 / FR-LOG-06
     log_event(
         logger,
         "ingest.complete",
@@ -134,17 +116,6 @@ def main(argv: list[str] | None = None) -> int:
             configure_logging()
             log_event(logger, "ingest.config_error", level=logging.ERROR, detail=str(exc))
             return 2
-        except ProviderAuthError as exc:
-            # FR-ING-08: permanent failure, aborted without retry, index untouched.
-            log_event(
-                logger,
-                "ingest.failed",
-                level=logging.ERROR,
-                stage="embed",
-                error_class=type(exc).__name__,
-                detail=str(exc),
-            )
-            return 3
         except (ProviderError, ProviderTimeout) as exc:
             log_event(
                 logger,

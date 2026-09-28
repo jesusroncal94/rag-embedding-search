@@ -1,10 +1,3 @@
-"""Gemini provider adapters — embedding and generation.
-
-Each sits behind a narrow interface (SPEC.md §5) so it can be swapped or faked. Retry
-with exponential backoff on transient failures (FR-ING-08); timeouts are surfaced
-distinctly from other upstream failures (FR-API-08a).
-"""
-
 from __future__ import annotations
 
 import logging
@@ -17,20 +10,19 @@ from app.logging_setup import Timer, get_logger, log_event
 
 logger = get_logger(__name__)
 
-# HTTP statuses worth retrying: rate limits and transient server faults.
 _RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504})
 
 
 class ProviderTimeout(RuntimeError):
-    """An upstream call exceeded runtime.request_timeout_ms (FR-API-08a -> HTTP 504)."""
+    pass
 
 
 class ProviderError(RuntimeError):
-    """An upstream call failed permanently (FR-API-08 -> HTTP 502)."""
+    pass
 
 
 class ProviderAuthError(ProviderError):
-    """Credentials rejected. Never retried — retrying a 401 only wastes time."""
+    pass
 
 
 class EmbeddingProvider(Protocol):
@@ -60,8 +52,6 @@ def _is_timeout(exc: Exception) -> bool:
 
 
 def _retryable(exc: Exception) -> bool:
-    if isinstance(exc, ProviderAuthError):
-        return False
     status = _status_of(exc)
     if status is not None:
         return status in _RETRYABLE_STATUS
@@ -69,16 +59,11 @@ def _retryable(exc: Exception) -> bool:
 
 
 def with_retries(operation, *, stage: str, max_retries: int, backoff_base_ms: int):
-    """Call `operation`, retrying transient failures with exponential backoff + jitter.
-
-    FR-ING-08. A permanent failure (auth, bad request) is raised on the first attempt;
-    retrying it would only slow the failure down.
-    """
     last: Exception | None = None
     for attempt in range(1, max_retries + 1):
         try:
             return operation()
-        except Exception as exc:  # noqa: BLE001 - normalised into provider errors below
+        except Exception as exc:  # noqa: BLE001
             last = exc
             status = _status_of(exc)
             if status == 401 or status == 403:
@@ -105,13 +90,7 @@ def with_retries(operation, *, stage: str, max_retries: int, backoff_base_ms: in
 
 
 class GeminiEmbeddingProvider:
-    """Gemini Embedding (FR-ING-05, FR-API-02).
-
-    Documents and queries are embedded with different task types — Gemini's retrieval
-    embeddings are asymmetric, and using RETRIEVAL_DOCUMENT for a query measurably
-    degrades recall. This is a quiet source of "retrieval just isn't very good" in RAG
-    systems, so it is made explicit here.
-    """
+    """Queries and documents use different task types: Gemini retrieval embeddings are asymmetric."""
 
     def __init__(self, config: Config) -> None:
         from google import genai
@@ -142,7 +121,6 @@ class GeminiEmbeddingProvider:
                 max_retries=self._config.runtime.max_retries,
                 backoff_base_ms=self._config.runtime.backoff_base_ms,
             )
-        # FR-LOG-04
         log_event(
             logger,
             "embedding.latency",
@@ -164,8 +142,6 @@ class GeminiEmbeddingProvider:
 
 
 class GeminiGenerationProvider:
-    """Gemini 2.5 Flash (FR-API-04)."""
-
     def __init__(self, config: Config) -> None:
         from google import genai
         from google.genai import types
@@ -176,7 +152,7 @@ class GeminiGenerationProvider:
         self._model = config.generation.model
 
     def generate(self, prompt: str) -> str:
-        def call() -> str:
+        def call() -> tuple[str, object]:
             response = self._client.models.generate_content(
                 model=self._model,
                 contents=prompt,
@@ -199,7 +175,6 @@ class GeminiGenerationProvider:
             )
 
         usage = getattr(response, "usage_metadata", None)
-        # FR-LOG-03
         log_event(
             logger,
             "llm.latency",

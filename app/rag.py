@@ -1,5 +1,3 @@
-"""The RAG flow: embed -> retrieve -> fence -> generate (FR-API-02..06a, 11..13)."""
-
 from __future__ import annotations
 
 import logging
@@ -18,12 +16,7 @@ INSUFFICIENT_CONTEXT_ANSWER = (
     "The documentation does not contain the information needed to answer this question."
 )
 
-# Heuristics for instruction-like text inside retrieved documents (FR-API-12).
-# Detection is for OBSERVABILITY, not defence: the actual mitigation is the prompt
-# contract in prompts/answer.md, which treats the whole context block as data. A
-# detector is a filter that can be evaded; a model instructed never to obey retrieved
-# text does not depend on spotting the payload. We log so that a poisoned document can
-# be found and removed at source.
+# Observability only: the defence is the prompt contract, because a pattern list can be evaded.
 _INJECTION_PATTERNS = (
     re.compile(r"ignore\s+(all\s+)?(previous|prior|above|earlier)\s+instructions?", re.I),
     re.compile(r"disregard\s+(all\s+)?(previous|prior|above|the)\s+", re.I),
@@ -49,7 +42,6 @@ class Answer:
 
 
 def detect_injection(text: str) -> list[str]:
-    """Return the instruction-like phrases found in `text`."""
     found: list[str] = []
     for pattern in _INJECTION_PATTERNS:
         match = pattern.search(text)
@@ -58,13 +50,21 @@ def detect_injection(text: str) -> list[str]:
     return found
 
 
-def build_context(chunks: list[RetrievedChunk]) -> str:
-    """Fence each chunk as attributed data (FR-API-11).
+def _log_suspected_injections(chunks: list[RetrievedChunk]) -> None:
+    for chunk in chunks:
+        phrases = detect_injection(chunk.content)
+        if phrases:
+            log_event(
+                logger,
+                "prompt_injection_suspected",
+                level=logging.WARNING,
+                source_path=chunk.source_path,
+                chunk_ordinal=chunk.chunk_ordinal,
+                matched_phrases=phrases,
+            )
 
-    Every chunk is wrapped in its own tagged element carrying its source. This gives the
-    model a structural signal for "this is quoted material" and supplies the exact
-    identifier the citation rule in the prompt asks for.
-    """
+
+def build_context(chunks: list[RetrievedChunk]) -> str:
     parts: list[str] = []
     for index, chunk in enumerate(chunks, start=1):
         parts.append(
@@ -109,7 +109,6 @@ class RagService:
         threshold = self._config.retrieval.min_similarity
         kept = [chunk for chunk in retrieved if chunk.similarity >= threshold]
 
-        # FR-LOG-05
         log_event(
             logger,
             "retrieval.result",
@@ -119,9 +118,6 @@ class RagService:
             below_threshold=not kept,
         )
 
-        # FR-API-06/06a: deterministic refusal. No LLM call at all — it costs nothing,
-        # cannot hallucinate, and cannot be steered by a question crafted to retrieve
-        # nothing.
         if not kept:
             return Answer(
                 answer=INSUFFICIENT_CONTEXT_ANSWER,
@@ -130,19 +126,7 @@ class RagService:
             )
 
         context = build_context(kept)
-
-        # FR-API-12: observability on poisoned source documents.
-        for chunk in kept:
-            phrases = detect_injection(chunk.content)
-            if phrases:
-                log_event(
-                    logger,
-                    "prompt_injection_suspected",
-                    level=logging.WARNING,
-                    source_path=chunk.source_path,
-                    chunk_ordinal=chunk.chunk_ordinal,
-                    matched_phrases=phrases,
-                )
+        _log_suspected_injections(kept)
 
         prompt = self._template.replace("{context}", context).replace("{question}", question)
         answer_text = self._generator.generate(prompt)

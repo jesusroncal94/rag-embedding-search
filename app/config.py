@@ -1,9 +1,3 @@
-"""Configuration loading and validation.
-
-FR-CFG-01 hyperparameters live in YAML; FR-CFG-02 secrets come from the environment;
-FR-CFG-03/03a we fail fast, loudly, and name the offending key.
-"""
-
 from __future__ import annotations
 
 import os
@@ -17,7 +11,7 @@ REDACTED = "***"
 
 
 class ConfigError(RuntimeError):
-    """Raised when configuration or secrets are absent or invalid (FR-CFG-03/03a)."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -92,27 +86,18 @@ class Config:
     gemini_api_key: str = field(repr=False, default="")
 
     def redacted(self) -> dict[str, Any]:
-        """Config as a dict with secrets masked — for FR-LOG-01."""
         data = asdict(self)
         if data.get("gemini_api_key"):
             data["gemini_api_key"] = REDACTED
         return data
 
 
-def _require(section: dict[str, Any], key: str, path: str) -> Any:
-    if key not in section:
-        raise ConfigError(f"Missing required configuration key: {path}.{key}")
-    return section[key]
-
-
-def _positive(value: Any, key: str) -> int | float:
+def _positive(value: Any, key: str) -> None:
     if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
         raise ConfigError(f"Invalid configuration: '{key}' must be a positive number, got {value!r}")
-    return value
 
 
 def _validate(cfg: Config) -> None:
-    """FR-CFG-03a: range-validate every value, naming the offending key."""
     _positive(cfg.chunking.min_chunk_chars, "chunking.min_chunk_chars")
     _positive(cfg.chunking.max_chunk_chars, "chunking.max_chunk_chars")
     if cfg.chunking.min_chunk_chars >= cfg.chunking.max_chunk_chars:
@@ -162,11 +147,7 @@ def _validate(cfg: Config) -> None:
     _positive(cfg.runtime.max_question_chars, "runtime.max_question_chars")
 
 
-def load_config(path: str | Path | None = None, *, require_api_key: bool = True) -> Config:
-    """Load, validate, and return configuration.
-
-    Raises ConfigError on anything missing or out of range (FR-CFG-03/03a).
-    """
+def load_config(path: str | Path | None = None) -> Config:
     cfg_path = Path(path or os.environ.get("CONFIG_PATH", "config/config.yaml"))
     if not cfg_path.is_file():
         raise ConfigError(f"Configuration file not found: {cfg_path}")
@@ -188,9 +169,8 @@ def load_config(path: str | Path | None = None, *, require_api_key: bool = True)
     except TypeError as exc:
         raise ConfigError(f"Invalid configuration structure: {exc}") from exc
 
-    # FR-CFG-02: secrets and connection strings come from the environment.
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if require_api_key and not api_key:
+    if not api_key:
         raise ConfigError(
             "Missing required environment variable: GEMINI_API_KEY. "
             "Set it in .env (see .env.example); it must never be written to config.yaml."

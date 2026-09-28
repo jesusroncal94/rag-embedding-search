@@ -1,10 +1,3 @@
-"""Postgres + pgvector store (ADR-002).
-
-Two tables. `collections` records which embedding model built the index — the metadata
-that makes FR-CFG-04a's startup guard possible, and the reason ADR-002 is defensible:
-the index and its provenance live in one transactional store.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -22,16 +15,11 @@ logger = get_logger(__name__)
 
 
 class StoreError(RuntimeError):
-    """Vector store unreachable or inconsistent."""
+    pass
 
 
 class EmbeddingModelMismatch(StoreError):
-    """The index was built by a different embedding model than we are configured with.
-
-    FR-CFG-04a. This is the failure this whole mechanism exists to prevent: mismatched
-    embeddings do not error, they silently return confident, plausible, wrong neighbours
-    forever. Refusing to start is the only safe response.
-    """
+    """Mismatched embeddings raise no error; they return plausible, wrong neighbours."""
 
 
 @dataclass(frozen=True)
@@ -90,12 +78,7 @@ class VectorStore:
         self._model = config.embedding.model
 
     def _connect(self, *, register_types: bool = True) -> psycopg.Connection:
-        """Open a connection.
-
-        `register_types` is False only during initialisation: pgvector's adapter looks
-        up the `vector` type at registration time, so it cannot be registered on a
-        database where `CREATE EXTENSION` has not yet run.
-        """
+        """The pgvector adapter cannot register before CREATE EXTENSION has run."""
         try:
             conn = psycopg.connect(self._url, row_factory=dict_row)
         except psycopg.Error as exc:
@@ -105,13 +88,11 @@ class VectorStore:
         return conn
 
     def initialise(self) -> None:
-        """Create the extension and schema if absent. Safe to call repeatedly."""
         with self._connect(register_types=False) as conn, conn.cursor() as cur:
             cur.execute(_SCHEMA.format(dimensions=self._dimensions))
             conn.commit()
 
     def ping(self) -> bool:
-        """FR-API-09: is the vector database reachable?"""
         try:
             with self._connect() as conn, conn.cursor() as cur:
                 cur.execute("SELECT 1")
@@ -138,11 +119,6 @@ class VectorStore:
         )
 
     def verify_embedding_model(self) -> None:
-        """FR-CFG-04a — refuse to serve an index built by another model.
-
-        An absent collection is NOT an error: FR-DOC-04a requires an un-ingested stack
-        to degrade to "insufficient context", not to refuse startup.
-        """
         info = self.collection_info()
         if info is None:
             log_event(
@@ -163,12 +139,6 @@ class VectorStore:
             )
 
     def replace_collection(self, chunks: list[Chunk], embeddings: list[list[float]]) -> int:
-        """Atomically rebuild the collection (FR-ING-09).
-
-        One transaction: the old corpus stays queryable until the new one is complete,
-        and a failure mid-write leaves the previous index intact rather than a
-        half-built one serving queries (FR-ING-08).
-        """
         if len(chunks) != len(embeddings):
             raise StoreError(
                 f"chunk/embedding count mismatch: {len(chunks)} chunks, {len(embeddings)} vectors"
@@ -210,11 +180,6 @@ class VectorStore:
         return len(chunks)
 
     def search(self, query_embedding: list[float], top_k: int) -> list[RetrievedChunk]:
-        """Cosine-similarity nearest neighbours (FR-API-03).
-
-        pgvector's `<=>` is cosine *distance*; similarity is 1 - distance, which is what
-        min_similarity is expressed in.
-        """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
