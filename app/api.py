@@ -42,6 +42,10 @@ class CitationModel(BaseModel):
     source_path: str
     chunk_ordinal: int
     similarity: float
+    snippet: str = Field(description="Text of the chunk that was placed in the answer's context.")
+    injection_suspected: bool = Field(
+        description="True when the chunk contains instruction-like text. Logged, never obeyed."
+    )
 
 
 class QueryResponse(BaseModel):
@@ -204,6 +208,8 @@ def _to_response(result: Answer, cid: str) -> QueryResponse:
                 source_path=c.source_path,
                 chunk_ordinal=c.chunk_ordinal,
                 similarity=c.similarity,
+                snippet=c.snippet,
+                injection_suspected=c.injection_suspected,
             )
             for c in result.citations
         ],

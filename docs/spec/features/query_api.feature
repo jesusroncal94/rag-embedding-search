@@ -20,6 +20,13 @@ Feature: Retrieval-augmented question answering over the API
     And every citation carries "source_path" and "chunk_ordinal"
     And every citation corresponds to a chunk that was placed in the LLM context
 
+  # FR-API-05a
+  Scenario: Every citation carries its chunk text and an injection flag
+    When I POST to "/api/v1/query" with question "How long do I have to dispute a card transaction?"
+    Then the response status is 200
+    And every citation carries the text of the chunk it cites
+    And every citation says whether its chunk looked like an injection
+
   # FR-API-03 — request-level override
   Scenario: The caller may override top_k within configured bounds
     When I POST to "/api/v1/query" with question "How do I deploy?" and top_k 3

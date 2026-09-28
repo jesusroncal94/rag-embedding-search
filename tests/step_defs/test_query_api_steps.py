@@ -135,6 +135,21 @@ def _citation_fields(ctx):
         assert citation["chunk_ordinal"] >= 0
 
 
+@then("every citation carries the text of the chunk it cites")
+def _citation_snippets(ctx):
+    stored = {(chunk.source_path, chunk.chunk_ordinal): chunk.text for chunk, _ in ctx["store"].rows}
+    citations = _body(ctx)["citations"]
+    assert citations
+    for citation in citations:
+        assert citation["snippet"] == stored[(citation["source_path"], citation["chunk_ordinal"])]
+
+
+@then("every citation says whether its chunk looked like an injection")
+def _citation_flags(ctx):
+    for citation in _body(ctx)["citations"]:
+        assert isinstance(citation["injection_suspected"], bool)
+
+
 @then("every citation corresponds to a chunk that was placed in the LLM context")
 def _citations_match_context(ctx):
     prompt = ctx["generator"].prompts[-1]

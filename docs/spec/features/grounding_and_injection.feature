@@ -42,6 +42,13 @@ Feature: Grounded answers and resistance to injected instructions
     And that log line carries the source document path
     And that log line does not contain the answer text
 
+  # FR-API-05a, FR-API-12
+  @unit
+  Scenario: A retrieved injection payload is flagged in its citation
+    When I POST to "/api/v1/query" with question "Can I close my account?"
+    Then the citation of the chunk containing "Ignore all previous instructions" is flagged as a suspected injection
+    And no other citation is flagged
+
   # FR-API-11
   @unit
   Scenario: Retrieved context is structurally fenced as data

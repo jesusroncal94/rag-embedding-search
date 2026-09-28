@@ -147,6 +147,21 @@ def _cites(ctx, source):
     assert source in _sources(ctx) or source in ctx["response"].json()["answer"]
 
 
+@then(parsers.parse('the citation of the chunk containing "{needle}" is flagged as a suspected injection'))
+def _payload_flagged(ctx, needle):
+    citations = ctx["response"].json()["citations"]
+    payload = [c for c in citations if needle in c["snippet"]]
+    assert payload, f"no citation contains {needle!r}; the scenario is testing nothing"
+    assert all(c["injection_suspected"] for c in payload)
+    ctx["payload_citations"] = payload
+
+
+@then("no other citation is flagged")
+def _others_not_flagged(ctx):
+    others = [c for c in ctx["response"].json()["citations"] if c not in ctx["payload_citations"]]
+    assert not any(c["injection_suspected"] for c in others)
+
+
 @then(parsers.parse('a log line is emitted with event "{event}"'))
 def _log_event_emitted(ctx, event):
     assert ctx["logs"].events(event), f"no {event} log line"

@@ -33,6 +33,8 @@ class Citation:
     source_path: str
     chunk_ordinal: int
     similarity: float
+    snippet: str
+    injection_suspected: bool
 
 
 @dataclass(frozen=True)
@@ -55,18 +57,24 @@ def detect_injection(text: str) -> list[str]:
     return found
 
 
-def _log_suspected_injections(chunks: list[RetrievedChunk]) -> None:
-    for chunk in chunks:
-        phrases = detect_injection(chunk.content)
-        if phrases:
-            log_event(
-                logger,
-                "prompt_injection_suspected",
-                level=logging.WARNING,
-                source_path=chunk.source_path,
-                chunk_ordinal=chunk.chunk_ordinal,
-                matched_phrases=phrases,
-            )
+def _cite(chunk: RetrievedChunk) -> Citation:
+    phrases = detect_injection(chunk.content)
+    if phrases:
+        log_event(
+            logger,
+            "prompt_injection_suspected",
+            level=logging.WARNING,
+            source_path=chunk.source_path,
+            chunk_ordinal=chunk.chunk_ordinal,
+            matched_phrases=phrases,
+        )
+    return Citation(
+        source_path=chunk.source_path,
+        chunk_ordinal=chunk.chunk_ordinal,
+        similarity=round(chunk.similarity, 4),
+        snippet=chunk.content,
+        injection_suspected=bool(phrases),
+    )
 
 
 def build_context(chunks: list[RetrievedChunk]) -> str:
@@ -130,21 +138,8 @@ class RagService:
                 grounded=False,
             )
 
-        context = build_context(kept)
-        _log_suspected_injections(kept)
-
-        prompt = self._template.replace("{context}", context).replace("{question}", question)
-        answer_text = self._generator.generate(prompt)
-
-        return Answer(
-            answer=answer_text,
-            citations=[
-                Citation(
-                    source_path=chunk.source_path,
-                    chunk_ordinal=chunk.chunk_ordinal,
-                    similarity=round(chunk.similarity, 4),
-                )
-                for chunk in kept
-            ],
-            grounded=True,
+        citations = [_cite(chunk) for chunk in kept]
+        prompt = self._template.replace("{context}", build_context(kept)).replace(
+            "{question}", question
         )
+        return Answer(answer=self._generator.generate(prompt), citations=citations, grounded=True)

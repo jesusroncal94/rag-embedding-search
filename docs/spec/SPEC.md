@@ -125,6 +125,7 @@ scenario in `docs/spec/features/`.
 | FR-API-03a | *(v0.2)* A caller-supplied `top_k` outside `[1, max_top_k]` MUST yield HTTP 400 naming the permitted range. |
 | FR-API-04 | The service MUST generate the answer with Gemini 2.5 Flash, grounded in the retrieved chunks via a configured prompt template. |
 | FR-API-05 | The response MUST include the answer text and the citations (source document + chunk ordinal) of every chunk placed in the context window. |
+| FR-API-05a | *(v0.5)* Each citation MUST also carry the text of its chunk (`snippet`) and whether that chunk contains instruction-like text (`injection_suspected`). Only chunks already placed in the context are returned; the flag is observability, never a filter. |
 | FR-API-06 | When no chunk scores above `min_similarity`, the service MUST return an explicit "insufficient context" answer rather than an ungrounded generation. |
 | FR-API-06a | *(v0.2)* In that case the service MUST NOT call the LLM at all — the refusal is deterministic, not generated. |
 | FR-API-07 | A blank or missing `question` MUST yield HTTP 400 with a structured error body; it MUST NOT reach the embedding or LLM provider. |
