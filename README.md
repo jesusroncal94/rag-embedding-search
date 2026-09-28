@@ -2,7 +2,10 @@
 
 A containerized proof of concept validating a fixed pipeline: **paragraph
 chunking → Gemini Embedding → pgvector retrieval → Gemini 2.5 Flash**, exposed as a REST
-API over a corpus of banking policy documents.
+API and a Streamlit page over a corpus of banking policy documents.
+
+Gemini 2.5 Flash has since been retired for new projects, so `config/config.yaml` runs
+`gemini-3.6-flash`; the reasons and what changed are in [SPEC.md §11.5](docs/spec/SPEC.md).
 
 Built spec-first. The specification in [`docs/spec/SPEC.md`](docs/spec/SPEC.md) is the
 source of truth, and the Gherkin scenarios in [`docs/spec/features/`](docs/spec/features/)
@@ -35,7 +38,13 @@ curl -s -X POST http://localhost:8000/api/v1/query \
 {
   "answer": "You can dispute a card transaction in the app up to 120 days after the transaction date. [disputes-and-chargebacks.md]",
   "citations": [
-    {"source_path": "disputes-and-chargebacks.md", "chunk_ordinal": 1, "similarity": 0.82}
+    {
+      "source_path": "disputes-and-chargebacks.md",
+      "chunk_ordinal": 0,
+      "similarity": 0.707,
+      "snippet": "# Disputes and Chargebacks\n\n## Raising a dispute\n\nA customer can dispute…",
+      "injection_suspected": false
+    }
   ],
   "grounded": true,
   "correlation_id": "9f2c…"
@@ -90,6 +99,7 @@ The Gherkin suite is executable (ADR-003). No local Python needed:
 docker compose run --rm tests                    # @unit tier
 docker compose run --rm tests pytest -m docker   # @docker tier (needs the stack up)
 docker compose run --rm ui-tests                 # the UI, in its own image
+docker compose run --rm tests ruff check .       # lint, configured in pyproject.toml
 ```
 
 The UI has its own dependency set, because Streamlit needs a newer Starlette than
@@ -132,7 +142,7 @@ Changing a value needs no code change:
 ```yaml
 retrieval:
   top_k: 5            # chunks retrieved per query
-  min_similarity: 0.35  # below this, refuse rather than generate
+  min_similarity: 0.35  # below this, refuse rather than generate (not yet calibrated)
 ```
 
 The service **fails fast at startup** rather than serving traffic it cannot honour: a
@@ -147,17 +157,18 @@ wrong results forever.
 
 ```
                     ┌──────────────────────────────────────┐
-  ingest (one-shot) │  read → paragraph chunk → batch      │
-  ─────────────────▶│  embed (Gemini) → atomic upsert      │──┐
+  ingest (one-shot) │ read → paragraph chunk → batch       │
+  ─────────────────▶│ embed (Gemini) → atomic upsert       │──┐
                     └──────────────────────────────────────┘  │
                                                               ▼
-  POST /api/v1/query    ┌──────────────────────┐    ┌────────────────────┐
-  ────────────────────▶ │  FastAPI service     │◀──▶│  Postgres+pgvector │
-                        │  embed → retrieve →  │    └────────────────────┘
-  answer + citations    │  fence → generate    │
-  ◀──────────────────── └──────────┬───────────┘
-                                   ▼
-                         Gemini Embedding + 2.5 Flash
+  ┌──────────────┐    ┌────────────────────────┐    ┌──────────────────────┐
+  │ ui           │───▶│ FastAPI service        │    │ Postgres + pgvector  │
+  │ (Streamlit)  │◀───│ embed → retrieve →     │◀──▶│                      │
+  └──────────────┘    │ fence → generate       │    └──────────────────────┘
+         ▲            └────────────────────────┘
+      browser                     │
+                                  ▼
+                  Gemini Embedding + 3.6 Flash (spec: 2.5 Flash)
 ```
 
 | Path | Purpose |
@@ -193,6 +204,12 @@ Deliberate, and discussed in SPEC.md §6–7 rather than hidden:
   retrofitted cheaply: a RAG system will happily surface anything it has indexed, so
   tenancy has to be a retrieval-time filter from day one.
 - **Full rebuild ingestion only.** No incremental or event-driven updates.
+- **The similarity floor is not calibrated.** Real embeddings score out-of-corpus questions
+  at 0.50–0.57, above the 0.35 floor, so the deterministic refusal rarely fires and
+  off-topic questions reach the model.
+- **Answers are not streamed**, and retries ignore `Retry-After`: on a rate limit they
+  spend the quota that is doing the limiting.
+- **Search latency is not logged**; embedding and generation latency are.
 
 ---
 
@@ -204,3 +221,5 @@ Deliberate, and discussed in SPEC.md §6–7 rather than hidden:
 | `/health` returns 503 | Postgres not ready yet, or `docker compose down -v` cleared it. |
 | Answers are all "insufficient context" | The corpus was never ingested: `docker compose run --rm ingest`. |
 | Startup fails naming two embedding models | `config.yaml` changed model after ingestion. Re-run ingestion. |
+| Every answer is a 502 | Usually the provider quota: search the api logs for the response's correlation id and look for a 429. The free tier allows 20 generation requests a day. |
+| Generation fails with 404 | The configured model is retired for your project. Change `generation.model`, and run the `@live` tier before relying on it. |

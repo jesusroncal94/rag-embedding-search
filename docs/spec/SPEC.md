@@ -1,6 +1,6 @@
 # SPEC — Internal Documentation Q&A (RAG) Proof of Concept
 
-**Status:** v0.4 — implemented; 57 unit scenarios green; `@live` tier pending an API key
+**Status:** v0.5 — implemented, with a Streamlit ui; 60 unit scenarios and 1 ui test green; `@live` run in part against `gemini-3.6-flash` (§11.5)
 **Date:** 2026-09-17
 **Deliverable:** (a) a containerized working PoC, (b) a write-up of the architecture and the path to production.
 
@@ -84,7 +84,7 @@ gap between "works on my laptop" and "runs for 500 engineers" explicit and coste
 |---|---|
 | Chunking strategy | Paragraph-based |
 | Embedding model | Gemini Embedding |
-| LLM | Gemini 2.5 Flash |
+| LLM | Gemini 2.5 Flash · *(v0.5)* retired for new projects; the PoC runs `gemini-3.6-flash` (R-11) |
 
 These are **givens**. Where I believe a given is suboptimal (see §7 Risks), the PoC implements
 the given as specified and the concern is raised in §7 — not silently "improved".
@@ -211,20 +211,22 @@ one that only the author can run has failed at its actual job.
 
 ```
                     ┌──────────────────────────────────────┐
-   ingest (one-shot)│  read docs → paragraph chunker       │
-   ────────────────▶│  → batch embed (Gemini) → upsert     │──┐
+  ingest (one-shot) │ read docs → paragraph chunker        │
+  ─────────────────▶│ → batch embed (Gemini) → upsert      │──┐
                     └──────────────────────────────────────┘  │
                                                               ▼
-                                                   ┌────────────────────┐
-  POST /api/v1/query   ┌──────────────────────┐    │   Vector database  │
-  ───────────────────▶ │  API service         │◀──▶│   (container)      │
-                       │  embed → retrieve →  │    └────────────────────┘
-  answer + citations   │  prompt → generate   │
-  ◀─────────────────── └──────────┬───────────┘
-                                  │
+  ┌──────────────┐    ┌────────────────────────┐    ┌──────────────────────┐
+  │ ui           │───▶│ API service            │    │ Vector database      │
+  │ (Streamlit)  │◀───│ embed → retrieve →     │◀──▶│ (container)          │
+  └──────────────┘    │ prompt → generate      │    └──────────────────────┘
+         ▲            └────────────────────────┘
+      browser                     │
                                   ▼
-                        Gemini Embedding + 2.5 Flash
+                  Gemini Embedding + 3.6 Flash (spec: 2.5 Flash)
 ```
+
+The `ui` (v0.5) calls only the REST API; it holds no secret and reaches neither the
+database nor Gemini.
 
 Boundaries chosen so each can be swapped independently in production: the chunker, the embedding
 provider, the vector store, and the generation provider each sit behind one interface.
@@ -285,9 +287,10 @@ anything. Presented as a range rather than a false precision:
 | R-04 | Gemini API quota/latency dominates the demo. | Retries with backoff, timeouts, latency logging (FR-LOG-03/04). |
 | R-05 | Corpus contains access-restricted material. | Out of PoC scope; flagged as §6.5 blocking item for production. |
 | R-06 | Choosing Python over the preferred Spring may read as an unexplained deviation. | Resolved by ADR-001, which states the reasoning explicitly rather than leaving it implicit in the repo. |
-| R-07 | pgvector recall/latency degrades past a corpus size we have not yet measured. | Index choice and parameters are config, not code. Threshold named as a range in §11 — the smoke corpus cannot measure it. |
+| R-07 | pgvector recall/latency degrades past a corpus size we have not yet measured. | Index choice and parameters are config, not code. Threshold named as a range in §6.1 — the smoke corpus cannot measure it. |
 | R-08 | **Indirect prompt injection.** The corpus contains a live injection payload (`account-and-verification.md`). Any document a RAG system indexes is an instruction channel into the model. | FR-API-11/12 + the `injection.feature` suite. Treated as a correctness requirement, not a roadmap item — in a regulated domain an injected wrong answer about liability or account closure is a compliance incident, not a bug. |
 | R-09 | **Regulated-domain answer risk.** The corpus states PSD2 liability caps, SCA rules, dispute windows and 10-year record retention. A wrong or stale answer carries regulatory weight. | Mandatory citations (FR-API-05), no-parametric-supplement (FR-API-13), deterministic refusal (FR-API-06a). Production needs answer review and a "verify against policy" disclaimer — named in §6. |
+| R-11 | *(v0.5)* **Specified model retired.** `gemini-2.5-flash` returns 404 for projects created after its deprecation, although the config pinned it. | The PoC runs `gemini-3.6-flash`, recorded in `config.yaml`. Pinning does not prevent a retirement; a deprecation watch and an eval run per model change do (§6.3). |
 | R-10 | **Corpus/hypothesis mismatch.** The hypothesis describes "technical documentation" for engineers; the corpus is customer-facing banking policy. Retrieval tuning, tone, and the value model all differ. | Flagged; the business case (§1) is written against what the corpus actually is. |
 
 ---
@@ -314,7 +317,9 @@ Ordered to build the argument, not just show features:
 3. Happy path: "How long do I have to dispute a transaction?" → **120 days**, cited.
 4. Negative fact: "Can a support agent unblock my card after a fraud block?" → the model must
    say *only the customer can*. This is where naive RAG fails, and the most persuasive moment.
-5. Refusal: "What is the capital of Peru?" → deterministic refusal, no LLM call, zero cost.
+5. Out of corpus: "What is the capital of Peru?" → the model says the documentation does not
+   cover it. *(v0.5)* With real embeddings the question scores about 0.50, above the 0.35
+   floor, so the deterministic refusal does not fire; calibrating the floor is §11.5 finding 2.
 6. **Injection: "Can I close my account?"** → correct policy answer despite the planted payload;
    show the `prompt_injection_suspected` log line alongside it.
 7. Failure mode, shown deliberately: a question about a table or a stepwise procedure, to expose
@@ -337,7 +342,7 @@ recorded here once decided, with the decision and its date.
 | A-03 | Sample documents | **DECIDED — authored by me.** Four synthetic banking-policy documents written for an earlier project, reused here. Banking policy chosen deliberately (regulated domain; see R-10), with a prompt-injection payload planted as an adversarial test case (R-08). | 2026-09-17 |
 | A-04 | Ingestion trigger | **DECIDED — separate one-shot command.** `docker-compose up -d` then `docker-compose run --rm ingest`. Keeps the batch/serving boundary explicit and protects NFR-02. | 2026-09-17 |
 | A-05 | Testing depth | **DECIDED — the Gherkin suite is executable** via `pytest-bdd`; the feature files in `docs/spec/features/` are the acceptance suite, not documentation. See ADR-003. | 2026-09-17 |
-| A-06 | Corpus | **DECIDED — `corpus/`, 4 markdown policy documents (~7.4 KB, ~30 paragraphs).** Smoke-scale. Production volumes remain unknown and are presented as a range (§11). | 2026-09-17 |
+| A-06 | Corpus | **DECIDED — `corpus/`, 4 markdown policy documents (~7.4 KB, ~30 paragraphs).** Smoke-scale. Production volumes remain unknown and are presented as a range (§6.1). | 2026-09-17 |
 | A-07 | Logging privacy posture | **DECIDED — log questions, never answers.** Questions drive the documentation-gap lever (§1.2) and are the analytically valuable signal; answers are the larger leakage surface. | 2026-09-17 |
 | A-08 | Demo | **DECIDED — a live demo following §8.1.** | 2026-09-17 |
 
@@ -457,3 +462,37 @@ curl -s localhost:8000/health                             # FR-DOC-01/02
 ```
 
 All passed on 2026-09-17.
+
+### 11.5 After the first version (v0.5)
+
+Everything above was written on 2026-09-17. What follows came afterwards, and is in the
+git history from commit `2236297`, which records the repository as it stood that day.
+
+**Changes**
+
+| Commit | Change |
+|---|---|
+| `3dd01c7` … `2da4e5b` | Refactor in four phases: comments and dead code, stage-typed provider errors and a retriever protocol, services through `app.state` with declarative config, shared test harness |
+| `d3f7979` | The latency log steps now assert real events, through an injectable Gemini client |
+| `9f289f0` | FR-API-05a: citations carry `snippet` and `injection_suspected` |
+| `794e029` `63a24dc` `819d322` | Streamlit ui (FR-DOC-06), a pending state, suggestions inside the chat |
+| `89ebf31` | The SDK's automatic function calling is off; it logged to the root logger on every call |
+| `ef19ff1` | ruff configured; strict zips over paired data |
+
+**Findings from running it against real services**
+
+1. **An invalid API key is a 400, not a 401.** Google returns `API_KEY_INVALID` as a 400, so it
+   surfaces as a generic provider error rather than an auth error, and the FR-ING-08 scenario
+   simulates a status code the provider does not send.
+2. **The similarity floor never fires.** With `gemini-embedding-001`, in-corpus questions score
+   0.68–0.79 at the top and out-of-corpus ones 0.50–0.57 (ten questions). The 0.35 floor is
+   below both, so every question reaches the model. The unit tier proved the refusal
+   mechanism; the live run showed the threshold was never calibrated.
+3. **The specified model is retired** for new projects (R-11).
+4. **The injection held** on the one question tried: the payload chunk was in the context at
+   rank 2, the answer gave the real closure policy, and the detector fired.
+5. **Retries spend the quota that is limiting them.** The free tier allows 20 generation
+   requests a day; retrying 429s without honouring `Retry-After` exhausted it twice.
+6. **Streamlit and FastAPI cannot share an environment**: Streamlit 1.64 needs Starlette ≥ 0.46
+   and FastAPI 0.115.6 allows < 0.42, so the ui has its own image and its own test image.
+7. **Search latency is not logged**, so there is no baseline for tuning HNSW.
