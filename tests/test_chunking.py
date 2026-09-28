@@ -1,9 +1,3 @@
-"""Unit tests for the chunker — the boundary cases the Gherkin pass exposed.
-
-The chunker is the only genuinely tricky pure logic in the system, so it gets direct
-tests as well as scenario coverage.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -28,7 +22,6 @@ def _paragraph(length: int, filler: str = "a") -> str:
 
 
 def _sentences(total: int, sentence_len: int = 100) -> str:
-    """A paragraph of `total` chars built from sentences ending in '. '."""
     body = ""
     while len(body) < total:
         body += "x" * (sentence_len - 2) + ". "
@@ -38,14 +31,10 @@ def _sentences(total: int, sentence_len: int = 100) -> str:
 pytestmark = pytest.mark.unit
 
 
-# --- FR-ING-02 ------------------------------------------------------------- #
-
-
 def test_splits_on_paragraph_boundaries():
     text = "\n\n".join(_paragraph(400, c) for c in "abc")
     chunks, _ = _chunk(text)
     assert len(chunks) == 3
-    # No chunk mixes paragraphs: each is a single repeated character.
     for chunk in chunks:
         assert len(set(chunk.text)) == 1
 
@@ -62,19 +51,14 @@ def test_empty_document_yields_no_chunks():
     assert _chunk("\n\n   \n\n")[0] == []
 
 
-# --- FR-ING-03 / FR-ING-03a ------------------------------------------------ #
-
-
 def test_short_paragraphs_merge_forward():
     text = "\n\n".join([_paragraph(50, "a"), _paragraph(60, "b"), _paragraph(900, "c")])
     chunks, _ = _chunk(text)
     assert len(chunks) == 1
-    # Original order preserved.
     assert chunks[0].text.index("a") < chunks[0].text.index("b") < chunks[0].text.index("c")
 
 
 def test_trailing_short_paragraph_is_kept_not_discarded():
-    """FR-ING-03a — the case that silently loses content if you merge naively."""
     text = _paragraph(900, "a") + "\n\n" + _paragraph(50, "b")
     chunks, _ = _chunk(text)
     assert len(chunks) == 2
@@ -88,9 +72,6 @@ def test_document_shorter_than_minimum_is_still_stored():
     assert chunks[0].text == _paragraph(10, "a")
 
 
-# --- FR-ING-04 / FR-ING-04a ------------------------------------------------ #
-
-
 def test_oversized_paragraph_splits_at_sentence_boundaries():
     chunks, warnings = _chunk(_sentences(4000))
     assert len(chunks) == 3
@@ -100,7 +81,6 @@ def test_oversized_paragraph_splits_at_sentence_boundaries():
 
 
 def test_oversized_paragraph_without_sentence_boundary_is_hard_split():
-    """FR-ING-04a — degenerate input must not produce an over-limit chunk."""
     chunks, warnings = _chunk(_paragraph(4000, "a"))
     assert all(len(chunk.text) <= MAX_CHARS for chunk in chunks)
     assert sum(len(chunk.text) for chunk in chunks) == 4000
@@ -116,13 +96,9 @@ def test_abbreviations_do_not_trigger_a_sentence_split():
 
 
 def test_merge_then_split_never_leaks_an_oversized_chunk():
-    """Ordering guarantee: merging short paragraphs must not defeat the max limit."""
     text = "\n\n".join(_paragraph(150, "a") for _ in range(40))
     chunks, _ = _chunk(text)
     assert all(len(chunk.text) <= MAX_CHARS for chunk in chunks)
-
-
-# --- FR-ING-06 ------------------------------------------------------------- #
 
 
 def test_metadata_is_complete_and_offsets_resolve():
@@ -131,7 +107,6 @@ def test_metadata_is_complete_and_offsets_resolve():
     assert [chunk.chunk_ordinal for chunk in chunks] == list(range(len(chunks)))
     for chunk in chunks:
         assert chunk.source_path == "doc.md"
-        # The offsets must point back at the exact source text (FR-ING-06).
         assert text[chunk.start_offset : chunk.end_offset] == chunk.text
 
 
@@ -145,9 +120,6 @@ def test_offsets_are_non_overlapping_and_ascending():
 def test_chunk_rejects_inverted_offsets():
     with pytest.raises(ValueError):
         Chunk(text="x", source_path="d.md", chunk_ordinal=0, start_offset=5, end_offset=1)
-
-
-# --- Real corpus ----------------------------------------------------------- #
 
 
 def test_real_corpus_chunks_cleanly(corpus_dir):
@@ -165,17 +137,10 @@ def test_real_corpus_chunks_cleanly(corpus_dir):
 
 
 def test_injection_payload_survives_chunking_intact(corpus_dir):
-    """The planted payload must reach the index whole.
-
-    If chunking split it we would be testing the mitigation against a mangled input and
-    proving nothing. This test guards the validity of the @live injection scenarios.
-    """
+    """If chunking split the payload, the @live injection scenarios would test nothing."""
     text = (corpus_dir / "account-and-verification.md").read_text(encoding="utf-8")
     chunks, _ = _chunk(text)
     assert any("Ignore all previous instructions" in chunk.text for chunk in chunks)
-
-
-# --- FR-ING-01 / FR-ING-01a ------------------------------------------------ #
 
 
 def test_discover_documents_skips_unsupported_extensions(tmp_path):

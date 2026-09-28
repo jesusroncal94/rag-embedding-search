@@ -1,31 +1,24 @@
-"""Binds docs/spec/features/query_api.feature (ADR-003).
-
-The FastAPI app is driven through TestClient with doubles injected into app.state.
-Lifespan is deliberately not run: startup builds real Gemini clients, and these
-scenarios are about the request contract.
-"""
-
 from __future__ import annotations
 
 import json
-import re
 
 import pytest
-from fastapi.testclient import TestClient
 from pytest_bdd import given, parsers, scenarios, then, when
 
-from app import api as api_module
-from app.chunking import chunk_text
 from app.config import Config
 from app.providers import ProviderError, ProviderTimeout
-from app.rag import RagService
-from app.store import StoreError
+from app.rag import INSUFFICIENT_CONTEXT_ANSWER
 from tests.conftest import (
-    CORPUS_DIR,
     FEATURES_DIR,
+    LEXICAL_FLOOR,
+    OUT_OF_CORPUS,
+    REFUSING_FLOOR,
     FakeEmbedder,
     FakeGenerator,
     InMemoryStore,
+    seed_corpus,
+    wire_ctx,
+    with_retrieval,
 )
 
 pytestmark = pytest.mark.unit
@@ -34,60 +27,20 @@ scenarios(str(FEATURES_DIR / "query_api.feature"))
 
 
 @pytest.fixture
-def ctx(base_config: Config, log_capture, monkeypatch):
-    store = InMemoryStore()
-    embedder = FakeEmbedder()
-    generator = FakeGenerator(answer="A grounded answer. [payments-and-transfers.md]")
+def ctx(base_config: Config, log_capture):
     return {
         "config": base_config,
-        "store": store,
-        "embedder": embedder,
-        "generator": generator,
+        "store": InMemoryStore(),
+        "embedder": FakeEmbedder(),
+        "generator": FakeGenerator(answer="A grounded answer. [payments-and-transfers.md]"),
         "logs": log_capture,
         "response": None,
-        "monkeypatch": monkeypatch,
     }
-
-
-def _wire(ctx) -> TestClient:
-    api_module.app.state.services = api_module.Services(
-        config=ctx["config"],
-        index=ctx["store"],
-        rag=RagService(
-            config=ctx["config"],
-            store=ctx["store"],
-            embedder=ctx["embedder"],
-            generator=ctx["generator"],
-        ),
-    )
-    return TestClient(api_module.app)
-
-
-def _ingest_corpus(ctx) -> None:
-    chunks = []
-    for path in sorted(CORPUS_DIR.glob("*.md")):
-        text = path.read_text(encoding="utf-8")
-        produced, _ = chunk_text(
-            text,
-            source_path=path.name,
-            min_chunk_chars=ctx["config"].chunking.min_chunk_chars,
-            max_chunk_chars=ctx["config"].chunking.max_chunk_chars,
-            paragraph_delimiter=ctx["config"].chunking.paragraph_delimiter,
-        )
-        chunks.extend(produced)
-    vectors = ctx["embedder"].embed_documents([chunk.text for chunk in chunks])
-    ctx["store"].replace_collection(chunks, vectors)
-    ctx["embedder"].document_calls.clear()
-
-
-# --------------------------------------------------------------------------- #
-# Background
-# --------------------------------------------------------------------------- #
 
 
 @given("the corpus has been ingested")
 def _corpus_ingested(ctx):
-    _ingest_corpus(ctx)
+    seed_corpus(ctx["store"], ctx["embedder"], ctx["config"])
 
 
 @given("the API service is healthy")
@@ -97,27 +50,12 @@ def _service_healthy(ctx):
 
 @given(parsers.parse('"retrieval.top_k" is {value:d}'))
 def _set_top_k(ctx, value):
-    ctx["config"] = _replace_retrieval(ctx["config"], top_k=value)
+    ctx["config"] = with_retrieval(ctx["config"], top_k=value)
 
 
 @given(parsers.parse('"retrieval.min_similarity" is {value:f}'))
 def _set_min_similarity(ctx, value):
-    # The fake embedder is lexical, so the configured production floor would reject
-    # everything. The scenario's intent is "a floor is in force"; the value is scaled
-    # to the double's scoring range so the threshold behaviour is what gets tested.
-    ctx["config"] = _replace_retrieval(ctx["config"], min_similarity=0.05)
-    ctx["declared_min_similarity"] = value
-
-
-def _replace_retrieval(config: Config, **changes) -> Config:
-    from dataclasses import replace
-
-    return replace(config, retrieval=replace(config.retrieval, **changes))
-
-
-# --------------------------------------------------------------------------- #
-# Given: failure injection
-# --------------------------------------------------------------------------- #
+    ctx["config"] = with_retrieval(ctx["config"], min_similarity=LEXICAL_FLOOR)
 
 
 @given("the Gemini generation endpoint returns a 500")
@@ -135,21 +73,10 @@ def _db_unreachable(ctx):
     ctx["store"].reachable = False
 
 
-# --------------------------------------------------------------------------- #
-# When
-# --------------------------------------------------------------------------- #
-
-
-# See the note in test_grounding_steps.py: the lexical double cannot judge relevance,
-# so an unanswerable question is marked as such rather than discovered by scoring.
-OUT_OF_CORPUS = {"What is the CEO's home address?"}
-
-
 def _post(ctx, payload: dict, headers: dict | None = None) -> None:
     if payload.get("question") in OUT_OF_CORPUS:
-        ctx["config"] = _replace_retrieval(ctx["config"], min_similarity=0.99)
-    client = _wire(ctx)
-    ctx["response"] = client.post("/api/v1/query", json=payload, headers=headers or {})
+        ctx["config"] = with_retrieval(ctx["config"], min_similarity=REFUSING_FLOOR)
+    ctx["response"] = wire_ctx(ctx).post("/api/v1/query", json=payload, headers=headers or {})
 
 
 @when(parsers.re(r'I POST to "/api/v1/query" with question "(?P<question>[^"]*)"$'))
@@ -179,13 +106,7 @@ def _post_with_correlation_id(ctx, value):
 
 @when(parsers.parse('I GET "/health"'))
 def _get_health(ctx):
-    client = _wire(ctx)
-    ctx["response"] = client.get("/health")
-
-
-# --------------------------------------------------------------------------- #
-# Then
-# --------------------------------------------------------------------------- #
+    ctx["response"] = wire_ctx(ctx).get("/health")
 
 
 def _body(ctx) -> dict:
@@ -231,8 +152,7 @@ def _retrieved_count(ctx, n):
 
 @then("the error message names the permitted range")
 def _names_range(ctx):
-    detail = _body(ctx)["detail"]
-    assert str(ctx["config"].retrieval.max_top_k) in detail
+    assert str(ctx["config"].retrieval.max_top_k) in _body(ctx)["detail"]
 
 
 @then("the error message names the maximum question length")
@@ -242,8 +162,6 @@ def _names_max_length(ctx):
 
 @then(parsers.parse('the "answer" states that the documentation does not contain the information'))
 def _refusal(ctx):
-    from app.rag import INSUFFICIENT_CONTEXT_ANSWER
-
     assert _body(ctx)["answer"] == INSUFFICIENT_CONTEXT_ANSWER
     assert _body(ctx)["grounded"] is False
 

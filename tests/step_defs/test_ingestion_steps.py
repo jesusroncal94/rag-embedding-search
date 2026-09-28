@@ -1,5 +1,3 @@
-"""Binds docs/spec/features/ingestion.feature (ADR-003)."""
-
 from __future__ import annotations
 
 import pytest
@@ -14,9 +12,7 @@ pytestmark = pytest.mark.unit
 scenarios(str(FEATURES_DIR / "ingestion.feature"))
 
 
-class _Recorder(Exception):
-    """A 503-like transient failure for retry scenarios."""
-
+class _Transient503(Exception):
     code = 503
 
 
@@ -54,15 +50,10 @@ def _sentence_text(total: int) -> str:
     return body[:total].rstrip() + "."
 
 
-# --------------------------------------------------------------------------- #
-# Background
-# --------------------------------------------------------------------------- #
-
-
 @given(parsers.parse("a configuration file with:"))
 def _config_table(ctx, datatable):
-    # datatable includes the header row.
-    for row in datatable[1:]:
+    _header, *rows = datatable
+    for row in rows:
         key, value = row[0].strip(), row[1].strip()
         ctx["overrides"][key] = int(value) if value.isdigit() else value
 
@@ -75,11 +66,6 @@ def _reachable_db(ctx):
 @given("a valid Gemini API key in the environment")
 def _valid_key(ctx):
     ctx["monkeypatch"].setenv("GEMINI_API_KEY", "test-key-not-real")
-
-
-# --------------------------------------------------------------------------- #
-# Given: corpus shapes
-# --------------------------------------------------------------------------- #
 
 
 @given(parsers.parse('a source directory containing {n:d} markdown documents and 1 ".png" file'))
@@ -121,7 +107,6 @@ def _one_doc_n_paragraphs(ctx, n):
 
 @given(parsers.parse("a corpus that produces {n:d} chunks"))
 def _corpus_of_n_chunks(ctx, n):
-    # One paragraph per chunk: each is comfortably above min and below max.
     for index in range(n):
         _write_doc(ctx, f"doc{index:03d}.md", "b" * 400)
 
@@ -134,7 +119,7 @@ def _batch_size(ctx, size):
 @given(parsers.parse("the embedding API fails with a 503 on the first {n:d} attempts and succeeds on the third"))
 def _transient_failures(ctx, n):
     _write_doc(ctx, "doc.md", "c" * 400)
-    ctx["embedder"] = FakeEmbedder(failures=[_Recorder() for _ in range(n)])
+    ctx["embedder"] = FakeEmbedder(failures=[_Transient503() for _ in range(n)])
 
 
 @given("the embedding API fails with a 401 on every attempt")
@@ -153,13 +138,7 @@ def _already_ingested(ctx):
     ctx["first_count"] = len(ctx["store"].rows)
 
 
-# --------------------------------------------------------------------------- #
-# When
-# --------------------------------------------------------------------------- #
-
-
 def _run_ingest(ctx) -> None:
-    """Run ingestion with doubles substituted for the providers and the store."""
     if not any(ctx["source"].iterdir()):
         _write_doc(ctx, "doc.md", "e" * 400)
 
@@ -183,11 +162,6 @@ def _run(ctx):
 @when("I run the ingestion script a second time over the same corpus")
 def _run_again(ctx):
     _run_ingest(ctx)
-
-
-# --------------------------------------------------------------------------- #
-# Then
-# --------------------------------------------------------------------------- #
 
 
 def _summary(ctx) -> dict:
@@ -311,8 +285,6 @@ def _error_stage(ctx, stage):
 
 @then("no partially-embedded collection is left serving queries")
 def _no_partial_collection(ctx):
-    # The write happens in one transaction after all embedding succeeds, so a failure
-    # during embedding must leave the store untouched.
     assert ctx["store"].replace_calls == 0
     assert ctx["store"].rows == []
 
