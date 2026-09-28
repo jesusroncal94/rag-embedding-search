@@ -28,7 +28,10 @@ retrieval:
   distance_metric: "cosine"
 
 generation:
-  model: "gemini-2.5-flash"
+  # The spec named gemini-2.5-flash. It returns 404 "no longer available to new users" on
+  # projects created after its deprecation (observed 2026-09-23), so the @live tier is run
+  # against its recommended successor. Revert if run on a project that still has access.
+  model: "gemini-3.6-flash"
   temperature: 0.0
   max_output_tokens: 1024
   prompt_template_path: "prompts/answer.md"
