@@ -183,7 +183,7 @@ Critical events **only** — deliberately not a firehose.
 | FR-LOG-02 | Query failure | correlation id, stage (`embed`/`retrieve`/`generate`), error class |
 | FR-LOG-03 | LLM call latency | correlation id, model, duration_ms, token counts if available |
 | FR-LOG-04 | Embedding call latency | correlation id, duration_ms, batch size |
-| FR-LOG-05 | Retrieval outcome | correlation id, chunks returned, top score, below-threshold flag |
+| FR-LOG-05 | Retrieval outcome | correlation id, chunks returned, top score, below-threshold flag, search duration_ms *(v0.5)* |
 | FR-LOG-06 | Ingestion summary | per FR-ING-10 |
 | FR-LOG-07 | *(v0.2)* Every record | `timestamp`, `level`, `event` present on every line |
 
@@ -495,4 +495,8 @@ git history from commit `2236297`, which records the repository as it stood that
    requests a day; retrying 429s without honouring `Retry-After` exhausted it twice.
 6. **Streamlit and FastAPI cannot share an environment**: Streamlit 1.64 needs Starlette ≥ 0.46
    and FastAPI 0.115.6 allows < 0.42, so the ui has its own image and its own test image.
-7. **Search latency is not logged**, so there is no baseline for tuning HNSW.
+7. **Search latency was not logged**, so there was no baseline for tuning HNSW. `retrieval.result`
+   now carries `duration_ms` (FR-LOG-05). Measured on 2026-09-29: 13–19 ms over eight questions,
+   against 290–430 ms for the embedding and 5.7–6.9 s for generation. About half of a search
+   is opening a connection, because every search opens its own; the query is about 7 ms over
+   25 chunks. At this scale HNSW tuning buys nothing, and a connection pool is the cheaper win.

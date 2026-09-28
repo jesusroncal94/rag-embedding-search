@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from app.config import Config
-from app.logging_setup import get_logger, log_event
+from app.logging_setup import Timer, get_logger, log_event
 from app.providers import EmbeddingProvider, GenerationProvider
 from app.store import RetrievedChunk
 
@@ -116,7 +116,8 @@ class RagService:
         k = top_k if top_k is not None else self._config.retrieval.top_k
 
         query_vector = self._embedder.embed_query(question)
-        retrieved = self._store.search(query_vector, k)
+        with Timer() as search_timer:
+            retrieved = self._store.search(query_vector, k)
 
         top_score = retrieved[0].similarity if retrieved else 0.0
         threshold = self._config.retrieval.min_similarity
@@ -125,6 +126,7 @@ class RagService:
         log_event(
             logger,
             "retrieval.result",
+            duration_ms=search_timer.duration_ms,
             chunks_retrieved=len(retrieved),
             chunks_above_threshold=len(kept),
             top_score=round(top_score, 4),

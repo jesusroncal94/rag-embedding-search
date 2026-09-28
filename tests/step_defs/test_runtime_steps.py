@@ -244,11 +244,12 @@ def _embedding_latency_logged(ctx):
     assert events[0]["batch_size"] == 1
 
 
-@then("a log line reports retrieval outcome with top score")
+@then("a log line reports retrieval outcome with top score and search latency")
 def _retrieval_logged(ctx):
-    events = ctx["logs"].events("retrieval.result")
-    assert events
-    assert "top_score" in events[-1]
+    events = _request_events(ctx, "retrieval.result")
+    assert len(events) == 1, events
+    assert "top_score" in events[0]
+    assert events[0]["duration_ms"] >= 0
 
 
 @then("a log line reports LLM latency and model name")

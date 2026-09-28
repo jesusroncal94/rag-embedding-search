@@ -103,7 +103,7 @@ Feature: Configuration, containerization and operational logging
   Scenario: A successful query emits exactly the critical events
     When I POST a valid question
     Then a log line reports embedding latency
-    And a log line reports retrieval outcome with top score
+    And a log line reports retrieval outcome with top score and search latency
     And a log line reports LLM latency and model name
     And no log line is emitted for non-critical internal steps
 

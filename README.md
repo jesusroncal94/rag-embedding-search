@@ -209,7 +209,8 @@ Deliberate, and discussed in SPEC.md §6–7 rather than hidden:
   off-topic questions reach the model.
 - **Answers are not streamed**, and retries ignore `Retry-After`: on a rate limit they
   spend the quota that is doing the limiting.
-- **Search latency is not logged**; embedding and generation latency are.
+- **Each search opens a new database connection.** Search takes about 14 ms, and about half
+  of that is connecting; a pool would remove it.
 
 ---
 
