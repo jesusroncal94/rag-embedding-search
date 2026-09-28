@@ -171,6 +171,7 @@ runtime:    max_retries, backoff_base_ms, request_timeout_ms, max_question_chars
 | FR-DOC-04a | *(v0.2)* An empty collection MUST degrade to "insufficient context" answers, not to HTTP errors. |
 | FR-DOC-05 | The service image MUST be built multi-stage and MUST NOT contain build toolchains or secrets. |
 | FR-DOC-05a | *(v0.2)* The service MUST run as a non-root user in the container. |
+| FR-DOC-06 | *(v0.5)* `docker compose up` MUST also start the `ui` service once the API is healthy. The `ui` calls only the REST API, holds no secret, and runs as a non-root user. |
 
 ### 3.5 Logging (`FR-LOG-*`)
 

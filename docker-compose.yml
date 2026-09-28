@@ -34,6 +34,19 @@ services:
       - "8000:8000"
     restart: unless-stopped
 
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      API_BASE_URL: http://api:8000
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+
   # Profile-gated so `docker compose up` does not run it; invoked explicitly.
   ingest:
     build: .
@@ -61,6 +74,17 @@ services:
     volumes:
       # Mounted rather than baked in, so editing a spec or a step definition does not
       # require an image rebuild.
+      - .:/app
+
+  # The ui has its own dependency set (Streamlit needs a newer Starlette than FastAPI
+  # allows), so its tests run in their own image.
+  #   docker compose run --rm ui-tests
+  ui-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui-test
+    profiles: ["test"]
+    volumes:
       - .:/app
 
 volumes:
