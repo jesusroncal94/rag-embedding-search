@@ -168,6 +168,12 @@ class GeminiGenerationProvider:
         self._config = config
         self._client = client or _gemini_client(config)
         self._model = config.generation.model
+        # No tools are passed, yet the SDK runs function calling by default and logs it to
+        # the root logger on every call. maximum_remote_calls must be None, or disabling
+        # it logs a warning instead.
+        self._no_function_calling = types.AutomaticFunctionCallingConfig(
+            disable=True, maximum_remote_calls=None
+        )
 
     def generate(self, prompt: str) -> str:
         def call() -> tuple[str, object]:
@@ -180,6 +186,7 @@ class GeminiGenerationProvider:
                     http_options=self._types.HttpOptions(
                         timeout=self._config.runtime.request_timeout_ms
                     ),
+                    automatic_function_calling=self._no_function_calling,
                 ),
             )
             return (response.text or "").strip(), response

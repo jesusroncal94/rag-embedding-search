@@ -130,6 +130,7 @@ class _FakeGenaiModels:
         )
 
     def generate_content(self, *, model: str, contents: str, config: object) -> SimpleNamespace:
+        self.last_config = config
         return SimpleNamespace(
             text=self._answer,
             usage_metadata=SimpleNamespace(
