@@ -77,18 +77,20 @@ class VectorStore:
         self._dimensions = config.embedding.dimensions
         self._model = config.embedding.model
 
-    def _connect(self, *, register_types: bool = True) -> psycopg.Connection:
-        """The pgvector adapter cannot register before CREATE EXTENSION has run."""
+    def _open(self) -> psycopg.Connection:
         try:
-            conn = psycopg.connect(self._url, row_factory=dict_row)
+            return psycopg.connect(self._url, row_factory=dict_row)
         except psycopg.Error as exc:
             raise StoreError(f"vector database unreachable: {type(exc).__name__}") from exc
-        if register_types:
-            register_vector(conn)
+
+    def _connect(self) -> psycopg.Connection:
+        conn = self._open()
+        register_vector(conn)
         return conn
 
     def initialise(self) -> None:
-        with self._connect(register_types=False) as conn, conn.cursor() as cur:
+        """Uses a bare connection: the pgvector adapter cannot register before CREATE EXTENSION."""
+        with self._open() as conn, conn.cursor() as cur:
             cur.execute(_SCHEMA.format(dimensions=self._dimensions))
             conn.commit()
 

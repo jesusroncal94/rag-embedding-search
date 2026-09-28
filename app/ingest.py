@@ -4,15 +4,25 @@ import argparse
 import logging
 import sys
 import time
+from enum import IntEnum
 from pathlib import Path
 
 from app.chunking import Chunk, chunk_text, discover_documents
-from app.config import ConfigError, load_config
+from app.config import Config, ConfigError, load_config
 from app.logging_setup import configure_logging, correlation_context, get_logger, log_event
-from app.providers import GeminiEmbeddingProvider, ProviderError
+from app.providers import EmbeddingProvider, GeminiEmbeddingProvider, ProviderError
 from app.store import StoreError, VectorStore
 
 logger = get_logger(__name__)
+
+
+class ExitCode(IntEnum):
+    OK = 0
+    NOTHING_TO_INGEST = 1
+    INVALID_CONFIG = 2
+    PROVIDER_FAILED = 3
+    STORE_FAILED = 4
+    SOURCE_MISSING = 5
 
 
 def _batched(items: list, size: int):
@@ -24,15 +34,8 @@ def _citation_path(path: Path, corpus_root: Path) -> str:
     return path.relative_to(corpus_root).as_posix()
 
 
-def run(config_path: str | None = None, source_dir: str | None = None) -> int:
-    started = time.perf_counter()
-    config = load_config(config_path)
-    configure_logging(config.logging.level)
-
-    source = source_dir or config.corpus.source_dir
-    documents, skipped = discover_documents(source, config.corpus.supported_extensions)
-
-    for path in skipped:
+def _log_skipped(paths: list[Path]) -> None:
+    for path in paths:
         log_event(
             logger,
             "ingest.file_skipped",
@@ -41,21 +44,13 @@ def run(config_path: str | None = None, source_dir: str | None = None) -> int:
             reason="unsupported extension",
         )
 
-    if not documents:
-        log_event(
-            logger,
-            "ingest.no_documents",
-            level=logging.ERROR,
-            source_dir=str(source),
-        )
-        return 1
 
+def _chunk_documents(documents: list[Path], source: Path, config: Config) -> list[Chunk]:
     all_chunks: list[Chunk] = []
     for path in documents:
-        text = path.read_text(encoding="utf-8")
-        relative = _citation_path(path, Path(source))
+        relative = _citation_path(path, source)
         chunks, warnings = chunk_text(
-            text,
+            path.read_text(encoding="utf-8"),
             source_path=relative,
             min_chunk_chars=config.chunking.min_chunk_chars,
             max_chunk_chars=config.chunking.max_chunk_chars,
@@ -71,24 +66,42 @@ def run(config_path: str | None = None, source_dir: str | None = None) -> int:
             chunks=len(chunks),
         )
         all_chunks.extend(chunks)
+    return all_chunks
 
-    if not all_chunks:
+
+def _embed(chunks: list[Chunk], embedder: EmbeddingProvider, batch_size: int) -> tuple[list[list[float]], int]:
+    vectors: list[list[float]] = []
+    calls = 0
+    for batch in _batched(chunks, batch_size):
+        vectors.extend(embedder.embed_documents([c.text for c in batch]))
+        calls += 1
+    return vectors, calls
+
+
+def run(config_path: str | None = None, source_dir: str | None = None) -> ExitCode:
+    started = time.perf_counter()
+    config = load_config(config_path)
+    configure_logging(config.logging.level)
+
+    source = Path(source_dir or config.corpus.source_dir)
+    documents, skipped = discover_documents(source, config.corpus.supported_extensions)
+    _log_skipped(skipped)
+    if not documents:
+        log_event(logger, "ingest.no_documents", level=logging.ERROR, source_dir=str(source))
+        return ExitCode.NOTHING_TO_INGEST
+
+    chunks = _chunk_documents(documents, source, config)
+    if not chunks:
         log_event(logger, "ingest.no_chunks", level=logging.ERROR, documents=len(documents))
-        return 1
+        return ExitCode.NOTHING_TO_INGEST
 
     store = VectorStore(config)
     store.initialise()
-    embedder = GeminiEmbeddingProvider(config)
+    vectors, embedding_calls = _embed(
+        chunks, GeminiEmbeddingProvider(config), config.embedding.embed_batch_size
+    )
+    chunk_count = store.replace_collection(chunks, vectors)
 
-    vectors: list[list[float]] = []
-    embedding_calls = 0
-    for batch in _batched(all_chunks, config.embedding.embed_batch_size):
-        vectors.extend(embedder.embed_documents([c.text for c in batch]))
-        embedding_calls += 1
-
-    chunk_count = store.replace_collection(all_chunks, vectors)
-
-    duration_ms = int((time.perf_counter() - started) * 1000)
     log_event(
         logger,
         "ingest.complete",
@@ -98,9 +111,21 @@ def run(config_path: str | None = None, source_dir: str | None = None) -> int:
         embedding_calls=embedding_calls,
         embedding_model=config.embedding.model,
         collection=config.database.collection_name,
-        duration_ms=duration_ms,
+        duration_ms=int((time.perf_counter() - started) * 1000),
     )
-    return 0
+    return ExitCode.OK
+
+
+def _failed(stage: str, exc: Exception, code: ExitCode) -> ExitCode:
+    log_event(
+        logger,
+        "ingest.failed",
+        level=logging.ERROR,
+        stage=stage,
+        error_class=type(exc).__name__,
+        detail=str(exc),
+    )
+    return code
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -115,30 +140,13 @@ def main(argv: list[str] | None = None) -> int:
         except ConfigError as exc:
             configure_logging()
             log_event(logger, "ingest.config_error", level=logging.ERROR, detail=str(exc))
-            return 2
+            return ExitCode.INVALID_CONFIG
         except ProviderError as exc:
-            log_event(
-                logger,
-                "ingest.failed",
-                level=logging.ERROR,
-                stage=exc.stage,
-                error_class=type(exc).__name__,
-                detail=str(exc),
-            )
-            return 3
+            return _failed(exc.stage, exc, ExitCode.PROVIDER_FAILED)
         except StoreError as exc:
-            log_event(
-                logger,
-                "ingest.failed",
-                level=logging.ERROR,
-                stage="store",
-                error_class=type(exc).__name__,
-                detail=str(exc),
-            )
-            return 4
+            return _failed("store", exc, ExitCode.STORE_FAILED)
         except FileNotFoundError as exc:
-            log_event(logger, "ingest.failed", level=logging.ERROR, stage="read", detail=str(exc))
-            return 5
+            return _failed("read", exc, ExitCode.SOURCE_MISSING)
 
 
 if __name__ == "__main__":

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Annotated, Any, AsyncIterator
+from dataclasses import dataclass
+from typing import Annotated, Any, AsyncIterator, Protocol
 
-from fastapi import FastAPI, Header, Request, Response, status
+from fastapi import Depends, FastAPI, Header, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -24,8 +25,8 @@ from app.providers import (
     ProviderError,
     ProviderTimeout,
 )
-from app.rag import RagService
-from app.store import StoreError, VectorStore
+from app.rag import Answer, RagService
+from app.store import CollectionInfo, StoreError, VectorStore
 
 logger = get_logger(__name__)
 
@@ -56,13 +57,16 @@ class ErrorResponse(BaseModel):
     correlation_id: str
 
 
-class AppState:
+class IndexStatus(Protocol):
+    def ping(self) -> bool: ...
+    def collection_info(self) -> CollectionInfo | None: ...
+
+
+@dataclass(frozen=True)
+class Services:
     config: Config
-    store: VectorStore
+    index: IndexStatus
     rag: RagService
-
-
-state = AppState()
 
 
 @asynccontextmanager
@@ -74,13 +78,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     store.initialise()
     store.verify_embedding_model()
 
-    state.config = config
-    state.store = store
-    state.rag = RagService(
+    app.state.services = Services(
         config=config,
-        store=store,
-        embedder=GeminiEmbeddingProvider(config),
-        generator=GeminiGenerationProvider(config),
+        index=store,
+        rag=RagService(
+            config=config,
+            store=store,
+            embedder=GeminiEmbeddingProvider(config),
+            generator=GeminiGenerationProvider(config),
+        ),
     )
 
     log_event(logger, "service.start", version=__version__, config=config.redacted())
@@ -93,6 +99,13 @@ app = FastAPI(
     version=__version__,
     lifespan=lifespan,
 )
+
+
+def get_services(request: Request) -> Services:
+    return request.app.state.services
+
+
+ServicesDep = Annotated[Services, Depends(get_services)]
 
 
 def _error(
@@ -108,9 +121,9 @@ def _error(
 
 
 @app.get("/health")
-def health() -> Response:
-    reachable = state.store.ping()
-    info = state.store.collection_info() if reachable else None
+def health(services: ServicesDep) -> Response:
+    reachable = services.index.ping()
+    info = services.index.collection_info() if reachable else None
     body: dict[str, Any] = {
         "status": "ok" if reachable else "degraded",
         "version": __version__,
@@ -134,41 +147,22 @@ def health() -> Response:
 )
 def query(
     request: QueryRequest,
+    services: ServicesDep,
     x_correlation_id: Annotated[str | None, Header(alias="X-Correlation-Id")] = None,
 ) -> Response:
-    config = state.config
+    config = services.config
     with correlation_context(x_correlation_id or new_correlation_id()) as cid:
         question = (request.question or "").strip()
-
-        if not question:
-            return _error(
-                status.HTTP_400_BAD_REQUEST,
-                "invalid_request",
-                "The 'question' field must be a non-empty string.",
-                cid,
-            )
-        if len(question) > config.runtime.max_question_chars:
-            return _error(
-                status.HTTP_400_BAD_REQUEST,
-                "question_too_long",
-                f"Question exceeds the maximum length of "
-                f"{config.runtime.max_question_chars} characters (got {len(question)}).",
-                cid,
-            )
-        top_k = request.top_k
-        if top_k is not None and not (1 <= top_k <= config.retrieval.max_top_k):
-            return _error(
-                status.HTTP_400_BAD_REQUEST,
-                "invalid_top_k",
-                f"'top_k' must be between 1 and {config.retrieval.max_top_k} (got {top_k}).",
-                cid,
-            )
+        rejection = _rejection(question, request.top_k, config)
+        if rejection:
+            error, detail = rejection
+            return _error(status.HTTP_400_BAD_REQUEST, error, detail, cid)
 
         if config.logging.log_question_text:
-            log_event(logger, "query.received", question=question, top_k=top_k)
+            log_event(logger, "query.received", question=question, top_k=request.top_k)
 
         try:
-            result = state.rag.answer(question, top_k)
+            result = services.rag.answer(question, request.top_k)
         except ProviderTimeout as exc:
             return _upstream_failure(exc, exc.stage, status.HTTP_504_GATEWAY_TIMEOUT, cid)
         except ProviderError as exc:
@@ -176,26 +170,46 @@ def query(
         except StoreError as exc:
             return _upstream_failure(exc, "retrieve", status.HTTP_502_BAD_GATEWAY, cid)
 
-        payload = QueryResponse(
-            answer=result.answer,
-            citations=[
-                CitationModel(
-                    source_path=c.source_path,
-                    chunk_ordinal=c.chunk_ordinal,
-                    similarity=c.similarity,
-                )
-                for c in result.citations
-            ],
-            grounded=result.grounded,
-            correlation_id=cid,
-        )
         if config.logging.log_answer_text:
             log_event(logger, "query.answered", answer=result.answer)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content=payload.model_dump(),
+            content=_to_response(result, cid).model_dump(),
             headers={"X-Correlation-Id": cid},
         )
+
+
+def _rejection(question: str, top_k: int | None, config: Config) -> tuple[str, str] | None:
+    if not question:
+        return "invalid_request", "The 'question' field must be a non-empty string."
+    if len(question) > config.runtime.max_question_chars:
+        return (
+            "question_too_long",
+            f"Question exceeds the maximum length of "
+            f"{config.runtime.max_question_chars} characters (got {len(question)}).",
+        )
+    if top_k is not None and not (1 <= top_k <= config.retrieval.max_top_k):
+        return (
+            "invalid_top_k",
+            f"'top_k' must be between 1 and {config.retrieval.max_top_k} (got {top_k}).",
+        )
+    return None
+
+
+def _to_response(result: Answer, cid: str) -> QueryResponse:
+    return QueryResponse(
+        answer=result.answer,
+        citations=[
+            CitationModel(
+                source_path=c.source_path,
+                chunk_ordinal=c.chunk_ordinal,
+                similarity=c.similarity,
+            )
+            for c in result.citations
+        ],
+        grounded=result.grounded,
+        correlation_id=cid,
+    )
 
 
 _UPSTREAM_ERRORS = {

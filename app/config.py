@@ -1,79 +1,100 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, field
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import yaml
+from pydantic import ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic.dataclasses import dataclass
 
 REDACTED = "***"
+
+PositiveInt = Annotated[int, Field(strict=True, gt=0)]
+NonEmpty = Annotated[str, Field(min_length=1)]
+
+_frozen = ConfigDict(extra="forbid", frozen=True)
 
 
 class ConfigError(RuntimeError):
     pass
 
 
-@dataclass(frozen=True)
+@dataclass(config=_frozen)
 class CorpusConfig:
     source_dir: str
     supported_extensions: list[str]
 
 
-@dataclass(frozen=True)
+@dataclass(config=_frozen)
 class ChunkingConfig:
-    paragraph_delimiter: str
-    min_chunk_chars: int
-    max_chunk_chars: int
+    paragraph_delimiter: NonEmpty
+    min_chunk_chars: PositiveInt
+    max_chunk_chars: PositiveInt
+
+    def __post_init__(self) -> None:
+        if self.min_chunk_chars >= self.max_chunk_chars:
+            raise ValueError(
+                "'chunking.min_chunk_chars' must be less than 'chunking.max_chunk_chars' "
+                f"({self.min_chunk_chars} >= {self.max_chunk_chars})"
+            )
 
 
-@dataclass(frozen=True)
+@dataclass(config=_frozen)
 class EmbeddingConfig:
-    model: str
-    dimensions: int
-    embed_batch_size: int
+    model: NonEmpty
+    dimensions: PositiveInt
+    embed_batch_size: PositiveInt
     document_task_type: str
     query_task_type: str
 
 
-@dataclass(frozen=True)
+@dataclass(config=_frozen)
 class RetrievalConfig:
-    top_k: int
-    max_top_k: int
-    min_similarity: float
-    distance_metric: str
+    top_k: PositiveInt
+    max_top_k: PositiveInt
+    min_similarity: Annotated[float, Field(ge=-1.0, le=1.0)]
+    distance_metric: Literal["cosine"]
+
+    def __post_init__(self) -> None:
+        if self.top_k > self.max_top_k:
+            raise ValueError(
+                "'retrieval.top_k' must not exceed 'retrieval.max_top_k' "
+                f"({self.top_k} > {self.max_top_k})"
+            )
 
 
-@dataclass(frozen=True)
+@dataclass(config=_frozen)
 class GenerationConfig:
-    model: str
-    temperature: float
-    max_output_tokens: int
+    model: NonEmpty
+    temperature: Annotated[float, Field(ge=0.0, le=2.0)]
+    max_output_tokens: PositiveInt
     prompt_template_path: str
 
 
-@dataclass(frozen=True)
+@dataclass(config=_frozen)
 class RuntimeConfig:
-    max_retries: int
-    backoff_base_ms: int
-    request_timeout_ms: int
-    max_question_chars: int
+    max_retries: PositiveInt
+    backoff_base_ms: PositiveInt
+    request_timeout_ms: PositiveInt
+    max_question_chars: PositiveInt
 
 
-@dataclass(frozen=True)
+@dataclass(config=_frozen)
 class LoggingConfig:
     level: str
     log_question_text: bool
     log_answer_text: bool
 
 
-@dataclass(frozen=True)
+@dataclass(config=_frozen)
 class DatabaseConfig:
     url: str
     collection_name: str
 
 
-@dataclass(frozen=True)
+@dataclass(config=_frozen)
 class Config:
     corpus: CorpusConfig
     chunking: ChunkingConfig
@@ -92,103 +113,42 @@ class Config:
         return data
 
 
-def _positive(value: Any, key: str) -> None:
-    if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
-        raise ConfigError(f"Invalid configuration: '{key}' must be a positive number, got {value!r}")
-
-
-def _validate(cfg: Config) -> None:
-    _positive(cfg.chunking.min_chunk_chars, "chunking.min_chunk_chars")
-    _positive(cfg.chunking.max_chunk_chars, "chunking.max_chunk_chars")
-    if cfg.chunking.min_chunk_chars >= cfg.chunking.max_chunk_chars:
-        raise ConfigError(
-            "Invalid configuration: 'chunking.min_chunk_chars' must be less than "
-            f"'chunking.max_chunk_chars' ({cfg.chunking.min_chunk_chars} >= "
-            f"{cfg.chunking.max_chunk_chars})"
-        )
-    if not cfg.chunking.paragraph_delimiter:
-        raise ConfigError("Invalid configuration: 'chunking.paragraph_delimiter' must not be empty")
-
-    _positive(cfg.embedding.dimensions, "embedding.dimensions")
-    _positive(cfg.embedding.embed_batch_size, "embedding.embed_batch_size")
-    if not cfg.embedding.model:
-        raise ConfigError("Invalid configuration: 'embedding.model' must not be empty")
-
-    _positive(cfg.retrieval.top_k, "retrieval.top_k")
-    _positive(cfg.retrieval.max_top_k, "retrieval.max_top_k")
-    if cfg.retrieval.top_k > cfg.retrieval.max_top_k:
-        raise ConfigError(
-            "Invalid configuration: 'retrieval.top_k' must not exceed 'retrieval.max_top_k' "
-            f"({cfg.retrieval.top_k} > {cfg.retrieval.max_top_k})"
-        )
-    if not -1.0 <= cfg.retrieval.min_similarity <= 1.0:
-        raise ConfigError(
-            "Invalid configuration: 'retrieval.min_similarity' must be within [-1.0, 1.0], "
-            f"got {cfg.retrieval.min_similarity}"
-        )
-    if cfg.retrieval.distance_metric != "cosine":
-        raise ConfigError(
-            "Invalid configuration: 'retrieval.distance_metric' only 'cosine' is supported, "
-            f"got {cfg.retrieval.distance_metric!r}"
-        )
-
-    if not 0.0 <= cfg.generation.temperature <= 2.0:
-        raise ConfigError(
-            f"Invalid configuration: 'generation.temperature' must be within [0.0, 2.0], "
-            f"got {cfg.generation.temperature}"
-        )
-    _positive(cfg.generation.max_output_tokens, "generation.max_output_tokens")
-    if not cfg.generation.model:
-        raise ConfigError("Invalid configuration: 'generation.model' must not be empty")
-
-    _positive(cfg.runtime.max_retries, "runtime.max_retries")
-    _positive(cfg.runtime.backoff_base_ms, "runtime.backoff_base_ms")
-    _positive(cfg.runtime.request_timeout_ms, "runtime.request_timeout_ms")
-    _positive(cfg.runtime.max_question_chars, "runtime.max_question_chars")
+_CONFIG_ADAPTER = TypeAdapter(Config)
 
 
 def load_config(path: str | Path | None = None) -> Config:
-    cfg_path = Path(path or os.environ.get("CONFIG_PATH", "config/config.yaml"))
-    if not cfg_path.is_file():
-        raise ConfigError(f"Configuration file not found: {cfg_path}")
-
-    with cfg_path.open(encoding="utf-8") as fh:
-        raw = yaml.safe_load(fh) or {}
-
+    raw = _read_yaml(Path(path or os.environ.get("CONFIG_PATH", "config/config.yaml")))
+    raw["gemini_api_key"] = _required_env("GEMINI_API_KEY")
+    raw.setdefault("database", {})
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+    if database_url:
+        raw["database"] = {**raw["database"], "url": database_url}
     try:
-        corpus = CorpusConfig(**raw["corpus"])
-        chunking = ChunkingConfig(**raw["chunking"])
-        embedding = EmbeddingConfig(**raw["embedding"])
-        retrieval = RetrievalConfig(**raw["retrieval"])
-        generation = GenerationConfig(**raw["generation"])
-        runtime = RuntimeConfig(**raw["runtime"])
-        logging_cfg = LoggingConfig(**raw["logging"])
-        database = DatabaseConfig(**raw["database"])
-    except KeyError as exc:
-        raise ConfigError(f"Missing required configuration section: {exc.args[0]}") from exc
-    except TypeError as exc:
-        raise ConfigError(f"Invalid configuration structure: {exc}") from exc
+        return _CONFIG_ADAPTER.validate_python(raw)
+    except ValidationError as exc:
+        raise ConfigError(_describe(exc)) from exc
 
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not api_key:
+
+def _read_yaml(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise ConfigError(f"Configuration file not found: {path}")
+    with path.open(encoding="utf-8") as fh:
+        return yaml.safe_load(fh) or {}
+
+
+def _required_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
         raise ConfigError(
-            "Missing required environment variable: GEMINI_API_KEY. "
+            f"Missing required environment variable: {name}. "
             "Set it in .env (see .env.example); it must never be written to config.yaml."
         )
+    return value
 
-    db_url = os.environ.get("DATABASE_URL", "").strip() or database.url
-    database = DatabaseConfig(url=db_url, collection_name=database.collection_name)
 
-    cfg = Config(
-        corpus=corpus,
-        chunking=chunking,
-        embedding=embedding,
-        retrieval=retrieval,
-        generation=generation,
-        runtime=runtime,
-        logging=logging_cfg,
-        database=database,
-        gemini_api_key=api_key,
-    )
-    _validate(cfg)
-    return cfg
+def _describe(exc: ValidationError) -> str:
+    problems = []
+    for error in exc.errors():
+        key = ".".join(str(part) for part in error["loc"])
+        problems.append(f"'{key}': {error['msg']}" if key else error["msg"])
+    return "Invalid configuration: " + "; ".join(problems)

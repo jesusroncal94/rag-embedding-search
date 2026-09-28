@@ -1,6 +1,6 @@
 """Binds docs/spec/features/query_api.feature (ADR-003).
 
-The FastAPI app is driven through TestClient with doubles injected into module state.
+The FastAPI app is driven through TestClient with doubles injected into app.state.
 Lifespan is deliberately not run: startup builds real Gemini clients, and these
 scenarios are about the request contract.
 """
@@ -50,13 +50,15 @@ def ctx(base_config: Config, log_capture, monkeypatch):
 
 
 def _wire(ctx) -> TestClient:
-    api_module.state.config = ctx["config"]
-    api_module.state.store = ctx["store"]
-    api_module.state.rag = RagService(
+    api_module.app.state.services = api_module.Services(
         config=ctx["config"],
-        store=ctx["store"],
-        embedder=ctx["embedder"],
-        generator=ctx["generator"],
+        index=ctx["store"],
+        rag=RagService(
+            config=ctx["config"],
+            store=ctx["store"],
+            embedder=ctx["embedder"],
+            generator=ctx["generator"],
+        ),
     )
     return TestClient(api_module.app)
 
