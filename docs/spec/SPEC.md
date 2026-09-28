@@ -332,7 +332,7 @@ recorded here once decided, with the decision and its date.
 |---|---|---|---|
 | A-01 | Implementation language / framework | **DECIDED — Python 3.12 + FastAPI, end to end.** Ingestion is `ingest.py`; the API is FastAPI. See ADR-001. | 2026-09-17 |
 | A-02 | Vector database | **DECIDED — Postgres 16 + `pgvector`.** See ADR-002. | 2026-09-17 |
-| A-03 | Sample documents | **DECIDED — supplied by the product owner.** Chunker tuning and the supported-format list are deferred until the corpus lands. | 2026-09-17 |
+| A-03 | Sample documents | **DECIDED — authored by me.** Four synthetic banking-policy documents written for an earlier project, reused here. Banking policy chosen deliberately (regulated domain; see R-10), with a prompt-injection payload planted as an adversarial test case (R-08). | 2026-09-17 |
 | A-04 | Ingestion trigger | **DECIDED — separate one-shot command.** `docker-compose up -d` then `docker-compose run --rm ingest`. Keeps the batch/serving boundary explicit and protects NFR-02. | 2026-09-17 |
 | A-05 | Testing depth | **DECIDED — the Gherkin suite is executable** via `pytest-bdd`; the feature files in `docs/spec/features/` are the acceptance suite, not documentation. See ADR-003. | 2026-09-17 |
 | A-06 | Corpus | **DECIDED — `corpus/`, 4 markdown policy documents (~7.4 KB, ~30 paragraphs).** Smoke-scale. Production volumes remain unknown and are presented as a range (§11). | 2026-09-17 |
