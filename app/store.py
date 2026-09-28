@@ -111,7 +111,9 @@ class VectorStore:
             row = cur.fetchone()
             if row is None:
                 return None
-            cur.execute("SELECT count(*) AS n FROM chunks WHERE collection = %s", (self._collection,))
+            cur.execute(
+                "SELECT count(*) AS n FROM chunks WHERE collection = %s", (self._collection,)
+            )
             count_row = cur.fetchone()
         return CollectionInfo(
             name=row["name"],
@@ -163,10 +165,8 @@ class VectorStore:
                     "COPY chunks (collection, source_path, chunk_ordinal, start_offset, "
                     "end_offset, content, embedding) FROM STDIN WITH (FORMAT BINARY)"
                 ) as copy:
-                    copy.set_types(
-                        ["text", "text", "int4", "int4", "int4", "text", "vector"]
-                    )
-                    for chunk, vector in zip(chunks, embeddings):
+                    copy.set_types(["text", "text", "int4", "int4", "int4", "text", "vector"])
+                    for chunk, vector in zip(chunks, embeddings, strict=True):
                         copy.write_row(
                             (
                                 self._collection,

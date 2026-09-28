@@ -6,10 +6,10 @@ import logging
 import math
 import os
 import re
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Sequence
 
 import pytest
 import yaml
@@ -50,7 +50,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         if "manual" in item.keywords:
             item.add_marker(pytest.mark.skip(reason="manual scenario - see SPEC.md NFR-05"))
         if "live" in item.keywords and not selected and not os.environ.get("GEMINI_API_KEY"):
-            item.add_marker(pytest.mark.skip(reason="live tier: set GEMINI_API_KEY and run -m live"))
+            item.add_marker(
+                pytest.mark.skip(reason="live tier: set GEMINI_API_KEY and run -m live")
+            )
         if "docker" in item.keywords and not selected:
             item.add_marker(pytest.mark.skip(reason="docker tier: run with -m docker"))
 
@@ -104,7 +106,9 @@ class FakeEmbedder:
 
 
 class FakeGenerator:
-    def __init__(self, *, answer: str = "A grounded answer.", error: Exception | None = None) -> None:
+    def __init__(
+        self, *, answer: str = "A grounded answer.", error: Exception | None = None
+    ) -> None:
         self.prompts: list[str] = []
         self._answer = answer
         self._error = error
@@ -148,7 +152,9 @@ class FakeGenaiClient:
 
 
 class InMemoryStore:
-    def __init__(self, *, embedding_model: str = "fake-embed", dimensions: int = _DIMENSIONS) -> None:
+    def __init__(
+        self, *, embedding_model: str = "fake-embed", dimensions: int = _DIMENSIONS
+    ) -> None:
         self.rows: list[tuple] = []
         self.embedding_model = embedding_model
         self.dimensions = dimensions
@@ -178,13 +184,13 @@ class InMemoryStore:
             raise AssertionError("chunk/embedding count mismatch")
         self.replace_calls += 1
         self.has_collection = True
-        self.rows = [(chunk, vector) for chunk, vector in zip(chunks, embeddings)]
+        self.rows = [(chunk, vector) for chunk, vector in zip(chunks, embeddings, strict=True)]
         return len(self.rows)
 
     def search(self, query_embedding: list[float], top_k: int) -> list[RetrievedChunk]:
         scored = []
         for chunk, vector in self.rows:
-            similarity = sum(a * b for a, b in zip(query_embedding, vector))
+            similarity = sum(a * b for a, b in zip(query_embedding, vector, strict=True))
             scored.append((similarity, chunk))
         scored.sort(key=lambda pair: pair[0], reverse=True)
         return [

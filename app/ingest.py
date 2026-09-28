@@ -69,7 +69,9 @@ def _chunk_documents(documents: list[Path], source: Path, config: Config) -> lis
     return all_chunks
 
 
-def _embed(chunks: list[Chunk], embedder: EmbeddingProvider, batch_size: int) -> tuple[list[list[float]], int]:
+def _embed(
+    chunks: list[Chunk], embedder: EmbeddingProvider, batch_size: int
+) -> tuple[list[list[float]], int]:
     vectors: list[list[float]] = []
     calls = 0
     for batch in _batched(chunks, batch_size):

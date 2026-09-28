@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from itertools import pairwise
+
 import pytest
 
 from app.chunking import Chunk, chunk_text, discover_documents
@@ -113,7 +115,7 @@ def test_metadata_is_complete_and_offsets_resolve():
 def test_offsets_are_non_overlapping_and_ascending():
     text = "\n\n".join(_paragraph(400, c) for c in "abcd")
     chunks, _ = _chunk(text)
-    for earlier, later in zip(chunks, chunks[1:]):
+    for earlier, later in pairwise(chunks):
         assert earlier.end_offset <= later.start_offset
 
 

@@ -38,9 +38,7 @@ def _write_doc(ctx, name: str, text: str) -> None:
 
 
 def _paragraphs(*lengths: int) -> str:
-    return "\n\n".join(
-        chr(ord("a") + index % 26) * length for index, length in enumerate(lengths)
-    )
+    return "\n\n".join(chr(ord("a") + index % 26) * length for index, length in enumerate(lengths))
 
 
 def _sentence_text(total: int) -> str:
@@ -75,7 +73,11 @@ def _docs_and_png(ctx, n):
     (ctx["source"] / "image.png").write_bytes(b"\x89PNG\r\n")
 
 
-@given(parsers.parse("a document with {n:d} paragraphs separated by blank lines, each {size:d} characters"))
+@given(
+    parsers.parse(
+        "a document with {n:d} paragraphs separated by blank lines, each {size:d} characters"
+    )
+)
 def _n_paragraphs(ctx, n, size):
     _write_doc(ctx, "doc.md", _paragraphs(*([size] * n)))
 
@@ -90,12 +92,20 @@ def _two_paragraphs(ctx, a, b):
     _write_doc(ctx, "doc.md", _paragraphs(a, b))
 
 
-@given(parsers.parse("a document with a single paragraph of {size:d} characters containing sentence terminators"))
+@given(
+    parsers.parse(
+        "a document with a single paragraph of {size:d} characters containing sentence terminators"
+    )
+)
 def _one_big_paragraph_with_sentences(ctx, size):
     _write_doc(ctx, "doc.md", _sentence_text(size))
 
 
-@given(parsers.parse("a document with a single {size:d}-character paragraph containing no sentence terminator"))
+@given(
+    parsers.parse(
+        "a document with a single {size:d}-character paragraph containing no sentence terminator"
+    )
+)
 def _one_big_paragraph_no_sentences(ctx, size):
     _write_doc(ctx, "doc.md", "a" * size)
 
@@ -116,7 +126,11 @@ def _batch_size(ctx, size):
     ctx["overrides"]["embedding.embed_batch_size"] = size
 
 
-@given(parsers.parse("the embedding API fails with a 503 on the first {n:d} attempts and succeeds on the third"))
+@given(
+    parsers.parse(
+        "the embedding API fails with a 503 on the first {n:d} attempts and succeeds on the third"
+    )
+)
 def _transient_failures(ctx, n):
     _write_doc(ctx, "doc.md", "c" * 400)
     ctx["embedder"] = FakeEmbedder(failures=[_Transient503() for _ in range(n)])
@@ -236,7 +250,11 @@ def _has_vectors(ctx):
     assert all(vector and any(vector) for _, vector in ctx["store"].rows)
 
 
-@then(parsers.parse('every stored chunk carries "source_path", "chunk_ordinal", "start_offset" and "end_offset"'))
+@then(
+    parsers.parse(
+        'every stored chunk carries "source_path", "chunk_ordinal", "start_offset" and "end_offset"'
+    )
+)
 def _has_metadata(ctx):
     for chunk, _ in ctx["store"].rows:
         assert chunk.source_path
@@ -300,7 +318,12 @@ def _no_duplicates(ctx):
     assert len(keys) == len(set(keys))
 
 
-@then(parsers.parse('a single JSON log line reports "documents_processed", "chunks_created", "embedding_calls" and "duration_ms"'))
+@then(
+    parsers.parse(
+        'a single JSON log line reports "documents_processed", "chunks_created", '
+        '"embedding_calls" and "duration_ms"'
+    )
+)
 def _summary_fields(ctx):
     events = ctx["logs"].events("ingest.complete")
     assert len(events) == 1

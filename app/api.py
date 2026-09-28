@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Annotated, Any, AsyncIterator, Protocol
+from typing import Annotated, Any, Protocol
 
 from fastapi import Depends, FastAPI, Header, Request, Response, status
 from fastapi.exceptions import RequestValidationError
@@ -112,9 +113,7 @@ def get_services(request: Request) -> Services:
 ServicesDep = Annotated[Services, Depends(get_services)]
 
 
-def _error(
-    status_code: int, error: str, detail: str, correlation_id: str
-) -> JSONResponse:
+def _error(status_code: int, error: str, detail: str, correlation_id: str) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
         content=ErrorResponse(
@@ -147,7 +146,11 @@ def health(services: ServicesDep) -> Response:
 @app.post(
     "/api/v1/query",
     response_model=QueryResponse,
-    responses={400: {"model": ErrorResponse}, 502: {"model": ErrorResponse}, 504: {"model": ErrorResponse}},
+    responses={
+        400: {"model": ErrorResponse},
+        502: {"model": ErrorResponse},
+        504: {"model": ErrorResponse},
+    },
 )
 def query(
     request: QueryRequest,

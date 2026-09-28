@@ -6,8 +6,9 @@ import logging
 import sys
 import time
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
 _correlation_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "correlation_id", default=None
@@ -38,7 +39,9 @@ class JsonFormatter(logging.Formatter):
             if key not in _RESERVED and key != "event":
                 payload[key] = value
         if record.exc_info:
-            payload["error_class"] = record.exc_info[0].__name__ if record.exc_info[0] else "Unknown"
+            payload["error_class"] = (
+                record.exc_info[0].__name__ if record.exc_info[0] else "Unknown"
+            )
         return json.dumps(payload, default=str, ensure_ascii=False)
 
 
@@ -99,7 +102,7 @@ class Timer:
         self.duration_ms: int = 0
         self._start: float = 0.0
 
-    def __enter__(self) -> "Timer":
+    def __enter__(self) -> Timer:
         self._start = time.perf_counter()
         return self
 

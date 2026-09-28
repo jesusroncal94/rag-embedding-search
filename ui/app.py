@@ -125,7 +125,9 @@ st.set_page_config(page_title="Documentation Q&A", page_icon="📄", layout="wid
 try:
     client = _client()
 except ValidationError:
-    st.error("Set API_BASE_URL to the address of the api service.", title="The UI is not configured.")
+    st.error(
+        "Set API_BASE_URL to the address of the api service.", title="The UI is not configured."
+    )
     st.stop()
 
 _sidebar(client)

@@ -63,7 +63,11 @@ def _generation_500(ctx):
     ctx["generator"] = FakeGenerator(error=ProviderError("generate", "upstream call failed"))
 
 
-@given(parsers.parse('the Gemini generation endpoint does not respond within "runtime.request_timeout_ms"'))
+@given(
+    parsers.parse(
+        'the Gemini generation endpoint does not respond within "runtime.request_timeout_ms"'
+    )
+)
 def _generation_timeout(ctx):
     ctx["generator"] = FakeGenerator(error=ProviderTimeout("generate", "upstream timed out"))
 
@@ -89,12 +93,16 @@ def _post_omitted(ctx, question):
     _post(ctx, {})
 
 
-@when(parsers.re(r'I POST to "/api/v1/query" with question "(?P<question>[^"]*)" and top_k (?P<top_k>\d+)'))
+@when(
+    parsers.re(
+        r'I POST to "/api/v1/query" with question "(?P<question>[^"]*)" and top_k (?P<top_k>\d+)'
+    )
+)
 def _post_with_top_k(ctx, question, top_k):
     _post(ctx, {"question": question, "top_k": int(top_k)})
 
 
-@when(parsers.parse("I POST to \"/api/v1/query\" with a question of {size:d} characters"))
+@when(parsers.parse('I POST to "/api/v1/query" with a question of {size:d} characters'))
 def _post_long_question(ctx, size):
     _post(ctx, {"question": "a" * size})
 
@@ -137,7 +145,9 @@ def _citation_fields(ctx):
 
 @then("every citation carries the text of the chunk it cites")
 def _citation_snippets(ctx):
-    stored = {(chunk.source_path, chunk.chunk_ordinal): chunk.text for chunk, _ in ctx["store"].rows}
+    stored = {
+        (chunk.source_path, chunk.chunk_ordinal): chunk.text for chunk, _ in ctx["store"].rows
+    }
     citations = _body(ctx)["citations"]
     assert citations
     for citation in citations:

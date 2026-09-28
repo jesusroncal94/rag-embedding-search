@@ -8,9 +8,34 @@ _SENTENCE_END = re.compile(r"[.!?][\"')\]]?(?=\s)")
 
 _ABBREVIATIONS = frozenset(
     {
-        "e.g", "i.e", "etc", "vs", "cf", "approx", "no", "mr", "mrs", "ms", "dr", "prof",
-        "inc", "ltd", "co", "st", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep",
-        "sept", "oct", "nov", "dec",
+        "e.g",
+        "i.e",
+        "etc",
+        "vs",
+        "cf",
+        "approx",
+        "no",
+        "mr",
+        "mrs",
+        "ms",
+        "dr",
+        "prof",
+        "inc",
+        "ltd",
+        "co",
+        "st",
+        "jan",
+        "feb",
+        "mar",
+        "apr",
+        "jun",
+        "jul",
+        "aug",
+        "sep",
+        "sept",
+        "oct",
+        "nov",
+        "dec",
     }
 )
 
@@ -112,6 +137,10 @@ def _merge_short(paragraphs: list[_Span], min_chars: int) -> list[_Span]:
     return merged
 
 
+def _is_hard_split(text: str, piece: _Span, max_chars: int) -> bool:
+    return piece.length == max_chars and not _sentence_boundaries(text, piece)
+
+
 def _split_long(
     text: str, spans: list[_Span], max_chars: int, source_path: str
 ) -> tuple[list[_Span], list[str]]:
@@ -123,12 +152,11 @@ def _split_long(
             continue
         pieces = _split_oversized(text, span, max_chars)
         for piece in pieces:
-            if piece.length > max_chars or not _sentence_boundaries(text, piece):
-                if piece.length >= max_chars:
-                    warnings.append(
-                        f"hard split at max_chunk_chars in {source_path} "
-                        f"(offset {piece.start}): no sentence boundary below the limit"
-                    )
+            if _is_hard_split(text, piece, max_chars):
+                warnings.append(
+                    f"hard split at max_chunk_chars in {source_path} "
+                    f"(offset {piece.start}): no sentence boundary below the limit"
+                )
         final.extend(pieces)
     return final, warnings
 
@@ -160,7 +188,9 @@ def chunk_text(
     )
 
 
-def discover_documents(source_dir: str | Path, supported_extensions: list[str]) -> tuple[list[Path], list[Path]]:
+def discover_documents(
+    source_dir: str | Path, supported_extensions: list[str]
+) -> tuple[list[Path], list[Path]]:
     root = Path(source_dir)
     if not root.is_dir():
         raise FileNotFoundError(f"Corpus source directory not found: {root}")

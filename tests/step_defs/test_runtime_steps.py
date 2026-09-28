@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import time
 from dataclasses import replace
-from pathlib import Path
 
 import httpx
 import pytest
@@ -264,10 +262,21 @@ def _llm_latency_logged(ctx):
 @then("no log line is emitted for non-critical internal steps")
 def _only_critical_events(ctx):
     allowed = {
-        "service.start", "service.stop", "query.received", "query.answered", "query.failed",
-        "retrieval.result", "embedding.latency", "llm.latency", "provider.retry",
-        "prompt_injection_suspected", "store.collection_absent", "ingest.complete",
-        "ingest.file_skipped", "ingest.hard_split", "ingest.document_chunked",
+        "service.start",
+        "service.stop",
+        "query.received",
+        "query.answered",
+        "query.failed",
+        "retrieval.result",
+        "embedding.latency",
+        "llm.latency",
+        "provider.retry",
+        "prompt_injection_suspected",
+        "store.collection_absent",
+        "ingest.complete",
+        "ingest.file_skipped",
+        "ingest.hard_split",
+        "ingest.document_chunked",
     }
     for record in ctx["logs"].records:
         assert record["event"] in allowed, f"unexpected event: {record['event']}"
@@ -307,7 +316,9 @@ def _key_not_logged(ctx):
 @when("I run the full stack through one ingestion and one query")
 def _full_stack(ctx):
     _seed(ctx)
-    ctx["response"] = wire_ctx(ctx).post("/api/v1/query", json={"question": "How do I block my card?"})
+    ctx["response"] = wire_ctx(ctx).post(
+        "/api/v1/query", json={"question": "How do I block my card?"}
+    )
 
 
 @then("every emitted log line parses as a single JSON object")
@@ -403,11 +414,17 @@ def _run_ingest_container(ctx):
 def _inspect_image(ctx):
     ctx["image_user"] = subprocess.run(
         ["docker", "compose", "run", "--rm", "--entrypoint", "id", "api", "-un"],
-        cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
     ).stdout.strip()
     ctx["image_history"] = subprocess.run(
         ["docker", "image", "history", "--no-trunc", "rag-pipeline-test-api"],
-        cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
     ).stdout
 
 
@@ -429,7 +446,9 @@ def _no_manual_step(ctx):
 
 @then("the API service does not report healthy before the database is reachable")
 def _api_waits(ctx):
-    assert httpx.get("http://localhost:8000/health", timeout=5).json()["vector_database"]["reachable"]
+    assert httpx.get("http://localhost:8000/health", timeout=5).json()["vector_database"][
+        "reachable"
+    ]
 
 
 @then("the API service does not crash-loop")

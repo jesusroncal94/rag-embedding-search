@@ -3,7 +3,8 @@ from __future__ import annotations
 import logging
 import random
 import time
-from typing import Any, Callable, Literal, Protocol, Sequence, TypeVar
+from collections.abc import Callable, Sequence
+from typing import Any, Literal, Protocol, TypeVar
 
 from app.config import Config
 from app.logging_setup import Timer, get_logger, log_event
@@ -51,7 +52,7 @@ def _status_of(exc: Exception) -> int | None:
 
 
 def _is_timeout(exc: Exception) -> bool:
-    if isinstance(exc, (TimeoutError, ProviderTimeout)):
+    if isinstance(exc, TimeoutError | ProviderTimeout):
         return True
     return "timeout" in type(exc).__name__.lower() or "deadline" in str(exc).lower()
 
@@ -110,7 +111,7 @@ def _gemini_client(config: Config) -> Any:
 
 
 class GeminiEmbeddingProvider:
-    """Queries and documents use different task types: Gemini retrieval embeddings are asymmetric."""
+    """Queries and documents use different task types: retrieval embeddings are asymmetric."""
 
     def __init__(self, config: Config, client: Any | None = None) -> None:
         from google.genai import types
