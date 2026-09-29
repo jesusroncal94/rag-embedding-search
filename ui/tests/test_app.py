@@ -30,24 +30,35 @@ ANSWER = {
         },
     ],
     "grounded": True,
+    "generated": True,
     "correlation_id": CORRELATION_ID,
+}
+SOURCES_ONLY = {
+    **ANSWER,
+    "answer": "The answer service is unavailable, so no answer was generated.",
+    "generated": False,
 }
 
 
-def _fake_api(request: httpx.Request) -> httpx.Response:
-    if request.url.path == "/health":
-        return httpx.Response(200, json={"vector_database": {"reachable": True, "chunk_count": 25}})
-    return httpx.Response(200, json=ANSWER)
+def _launch(monkeypatch: pytest.MonkeyPatch, answer: dict) -> AppTest:
+    def fake_api(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(
+                200, json={"vector_database": {"reachable": True, "chunk_count": 25}}
+            )
+        return httpx.Response(200, json=answer)
 
-
-@pytest.fixture
-def app(monkeypatch: pytest.MonkeyPatch) -> AppTest:
     fake = client_module.ApiClient(
-        httpx.Client(base_url="http://api", transport=httpx.MockTransport(_fake_api))
+        httpx.Client(base_url="http://api", transport=httpx.MockTransport(fake_api))
     )
     monkeypatch.setattr(client_module, "create_client", lambda: fake)
     st.cache_resource.clear()
     return AppTest.from_file(str(APP), default_timeout=15).run()
+
+
+@pytest.fixture
+def app(monkeypatch: pytest.MonkeyPatch) -> AppTest:
+    return _launch(monkeypatch, ANSWER)
 
 
 def test_a_suggested_question_shows_the_answer_with_its_sources(app: AppTest) -> None:
@@ -60,3 +71,15 @@ def test_a_suggested_question_shows_the_answer_with_its_sources(app: AppTest) ->
     assert list(sources["chunk"]) == [5, 6]
     assert list(sources["flag"]) == ["", "instruction-like text · logged"]
     assert app.code[0].value == CORRELATION_ID
+
+
+def test_an_answer_without_the_model_is_labelled_and_shows_its_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _launch(monkeypatch, SOURCES_ONLY)
+    app.pills(key="suggestion").set_value("Can I close my account?").run()
+
+    rendered = [element.value for element in app.markdown]
+    assert any("Sources only · model unavailable" in value for value in rendered)
+    assert not any("Answered ·" in value for value in rendered)
+    assert list(app.dataframe[0].value["chunk"]) == [5, 6]

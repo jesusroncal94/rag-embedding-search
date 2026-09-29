@@ -140,6 +140,7 @@ scenario in `docs/spec/features/`.
 | FR-API-11 | *(v0.3)* Retrieved chunk text MUST be supplied to the LLM as **data, never as instruction**: fenced in a delimited block, with the system prompt stating that content inside it is reference material whose imperatives are to be ignored. |
 | FR-API-12 | *(v0.3)* Instructions embedded in retrieved documents MUST NOT alter system behaviour. An injection attempt MUST yield the policy-correct answer and SHOULD be logged as a `prompt_injection_suspected` event. |
 | FR-API-13 | *(v0.3)* The answer MUST be derived only from retrieved context; the model MUST NOT supplement from parametric knowledge. Where context is partial, the answer MUST say what it does not cover. |
+| FR-API-14 | *(v0.5)* After `breaker_failure_threshold` consecutive failures of a provider, the service MUST stop calling it for `breaker_open_ms`, then let one trial call decide. While generation is stopped, a query MUST return HTTP 200 with the retrieved sections as citations, a fixed answer saying no answer was generated, and `generated: false`. While embedding is stopped, a query MUST fail at once with HTTP 502. Every response carries `generated`, true only when the model wrote the answer. |
 
 ### 3.3 Configuration (`FR-CFG-*`)
 
@@ -518,4 +519,10 @@ git history from commit `2236297`, which records the repository as it stood that
    about 0.3 US cents at the 2026 paid price.
 10. **FR-API-08a only held for generation.** The embedding call had no timeout, so a hung
     embedding request could hold a query, or an ingestion batch, indefinitely. Both calls now
-    pass `request_timeout_ms`, and a unit test asserts it on each request.
+. **D4.2 built: a circuit breaker per provider, and sources-only answers.** Before, an outage
+    meant every request waited out its timeouts and retries. Now five consecutive failures stop
+    calls to that provider for 30 s, then one trial call decides. With generation stopped the
+    api answers from retrieval alone (`generated: false`) and the ui labels it "Sources only";
+    with embedding stopped it fails at once. Verified against Gemini with a nonexistent model
+    name: two 502s, then a sources-only 200 without a model call. The breaker is in-process, so
+    each api replica counts its own failures.

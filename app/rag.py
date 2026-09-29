@@ -6,15 +6,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from app.breaker import CircuitBreaker, CircuitOpen
 from app.config import Config
 from app.logging_setup import Timer, get_logger, log_event
-from app.providers import EmbeddingProvider, GenerationProvider
+from app.providers import EmbeddingProvider, GenerationProvider, Stage
 from app.store import RetrievedChunk
 
 logger = get_logger(__name__)
 
 INSUFFICIENT_CONTEXT_ANSWER = (
     "The documentation does not contain the information needed to answer this question."
+)
+
+SOURCES_ONLY_ANSWER = (
+    "The answer service is unavailable, so no answer was generated. "
+    "The sections below are the parts of the documentation that match the question."
 )
 
 # Observability only: the defence is the prompt contract, because a pattern list can be evaded.
@@ -42,6 +48,7 @@ class Answer:
     answer: str
     citations: list[Citation]
     grounded: bool
+    generated: bool
 
 
 class ChunkRetriever(Protocol):
@@ -77,6 +84,14 @@ def _cite(chunk: RetrievedChunk) -> Citation:
     )
 
 
+def _breaker(stage: Stage, config: Config) -> CircuitBreaker:
+    return CircuitBreaker(
+        stage,
+        failure_threshold=config.runtime.breaker_failure_threshold,
+        open_ms=config.runtime.breaker_open_ms,
+    )
+
+
 def build_context(chunks: list[RetrievedChunk]) -> str:
     parts: list[str] = []
     for index, chunk in enumerate(chunks, start=1):
@@ -99,6 +114,8 @@ class RagService:
         self._store = store
         self._embedder = embedder
         self._generator = generator
+        self._embed_breaker = _breaker("embed", config)
+        self._generate_breaker = _breaker("generate", config)
         self._template = self._load_template(config.generation.prompt_template_path)
 
     @staticmethod
@@ -115,7 +132,7 @@ class RagService:
     def answer(self, question: str, top_k: int | None = None) -> Answer:
         k = top_k if top_k is not None else self._config.retrieval.top_k
 
-        query_vector = self._embedder.embed_query(question)
+        query_vector = self._embed_breaker.call(lambda: self._embedder.embed_query(question))
         with Timer() as search_timer:
             retrieved = self._store.search(query_vector, k)
 
@@ -138,10 +155,18 @@ class RagService:
                 answer=INSUFFICIENT_CONTEXT_ANSWER,
                 citations=[],
                 grounded=False,
+                generated=False,
             )
 
         citations = [_cite(chunk) for chunk in kept]
         prompt = self._template.replace("{context}", build_context(kept)).replace(
             "{question}", question
         )
-        return Answer(answer=self._generator.generate(prompt), citations=citations, grounded=True)
+        try:
+            text = self._generate_breaker.call(lambda: self._generator.generate(prompt))
+        except CircuitOpen:
+            log_event(logger, "query.sources_only", reason="generation circuit open")
+            return Answer(
+                answer=SOURCES_ONLY_ANSWER, citations=citations, grounded=True, generated=False
+            )
+        return Answer(answer=text, citations=citations, grounded=True, generated=True)

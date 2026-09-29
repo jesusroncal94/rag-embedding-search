@@ -53,6 +53,7 @@ class QueryResponse(BaseModel):
     answer: str
     citations: list[CitationModel]
     grounded: bool
+    generated: bool
     correlation_id: str
 
 
@@ -217,6 +218,7 @@ def _to_response(result: Answer, cid: str) -> QueryResponse:
             for c in result.citations
         ],
         grounded=result.grounded,
+        generated=result.generated,
         correlation_id=cid,
     )
 

@@ -80,6 +80,33 @@ Feature: Retrieval-augmented question answering over the API
     Then the response status is 504
     And the failure is logged with stage "generate"
 
+  # FR-API-14 — D4.2: fail fast and degrade, do not retry harder
+  Scenario: Repeated generation failures stop the model calls and return the sources only
+    Given "runtime.breaker_failure_threshold" is 3
+    And the Gemini generation endpoint returns a 500
+    When I POST the question "How do I dispute a transaction?" 4 times
+    Then the first 3 responses are 502
+    And the last response is 200 with "generated" false and the retrieved sections as citations
+    And the model was called 3 times
+    And a log line reports that the "generate" circuit opened
+
+  # FR-API-14
+  Scenario: After the open period one trial call decides whether the model is back
+    Given "runtime.breaker_failure_threshold" is 1
+    And "runtime.breaker_open_ms" is 50
+    And the Gemini generation endpoint fails once and then recovers
+    When I POST the question "How do I dispute a transaction?", wait 60 ms, and POST it again
+    Then the last response is 200 with "generated" true
+    And a log line reports that the "generate" circuit closed
+
+  # FR-API-14 — with the embedding circuit open nothing can be retrieved, so there is no degraded answer
+  Scenario: Repeated embedding failures fail fast without calling the provider
+    Given "runtime.breaker_failure_threshold" is 2
+    And the Gemini embedding endpoint keeps failing
+    When I POST the question "How do I dispute a transaction?" 3 times
+    Then every response is 502
+    And the embedding provider was called 2 times
+
   # FR-API-08b — found by the @live run on 2026-09-29
   Scenario: An answer cut off at the output token limit is not served
     Given the model stops at the output token limit mid-answer

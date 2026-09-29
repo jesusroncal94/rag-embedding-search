@@ -42,6 +42,10 @@ runtime:
   max_retries: 3
   backoff_base_ms: 500
   request_timeout_ms: 30000
+  # After this many consecutive failures a provider is not called for breaker_open_ms; then one
+  # trial call decides. While generation is open, queries return the retrieved sections only.
+  breaker_failure_threshold: 5
+  breaker_open_ms: 30000
   max_question_chars: 2000
 
 logging:

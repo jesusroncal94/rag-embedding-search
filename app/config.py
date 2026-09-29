@@ -78,6 +78,8 @@ class RuntimeConfig:
     max_retries: PositiveInt
     backoff_base_ms: PositiveInt
     request_timeout_ms: PositiveInt
+    breaker_failure_threshold: PositiveInt
+    breaker_open_ms: PositiveInt
     max_question_chars: PositiveInt
 
 

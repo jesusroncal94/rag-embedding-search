@@ -47,6 +47,7 @@ curl -s -X POST http://localhost:8000/api/v1/query \
     }
   ],
   "grounded": true,
+  "generated": true,
   "correlation_id": "9f2c…"
 }
 ```
@@ -68,6 +69,8 @@ Every answer shows what happened rather than a verdict:
   sent to the model. The sources table lists each one with its text, and flags any chunk
   that contains instruction-like text.
 - **Refused · no model call**: nothing passed the floor, so the model was never asked.
+- **Sources only · model unavailable**: the model failed several times in a row, so it is
+  not being called for a while. The matching sections are shown instead, unedited.
 - An error box for a 400, 502 or 504, or an unreachable API.
 
 Each response shows its correlation id, which is the key to that request in the API logs.

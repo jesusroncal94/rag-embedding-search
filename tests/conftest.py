@@ -113,16 +113,23 @@ class FakeEmbedder:
 
 class FakeGenerator:
     def __init__(
-        self, *, answer: str = "A grounded answer.", error: Exception | None = None
+        self,
+        *,
+        answer: str = "A grounded answer.",
+        error: Exception | None = None,
+        failures: list[Exception] | None = None,
     ) -> None:
         self.prompts: list[str] = []
         self._answer = answer
         self._error = error
+        self._failures = list(failures or [])
 
     def generate(self, prompt: str) -> str:
         self.prompts.append(prompt)
         if self._error:
             raise self._error
+        if self._failures:
+            raise self._failures.pop(0)
         return self._answer
 
     @property
@@ -244,6 +251,10 @@ class _AppRecordsHandler(logging.Handler):
 
 def with_retrieval(config: Config, **changes) -> Config:
     return replace(config, retrieval=replace(config.retrieval, **changes))
+
+
+def with_runtime(config: Config, **changes) -> Config:
+    return replace(config, runtime=replace(config.runtime, **changes))
 
 
 def seed_corpus(store: InMemoryStore, embedder: EmbeddingProvider, config: Config) -> None:

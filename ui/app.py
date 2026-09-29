@@ -25,8 +25,8 @@ def _correlation_id(value: str) -> None:
     st.code(value, language=None)
 
 
-def _sources(answer: Answer) -> None:
-    with st.expander("Sources in context"):
+def _sources(answer: Answer, *, expanded: bool = False) -> None:
+    with st.expander("Sources in context", expanded=expanded):
         st.dataframe(
             [
                 {
@@ -49,9 +49,16 @@ def _sources(answer: Answer) -> None:
 
 def _render_answer(answer: Answer) -> None:
     st.markdown(answer.text)
-    if answer.grounded:
+    if answer.grounded and answer.generated:
         st.badge(f"Answered · {len(answer.citations)} sources in context", color="green")
         _sources(answer)
+    elif answer.grounded:
+        st.badge("Sources only · model unavailable", color="orange")
+        st.caption(
+            "The model has failed repeatedly, so it is not being called for now. "
+            "These are the matching sections, unedited."
+        )
+        _sources(answer, expanded=True)
     else:
         st.badge("Refused · no model call", color="gray")
         st.caption(

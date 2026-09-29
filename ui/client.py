@@ -27,6 +27,7 @@ class Answer:
     text: str
     citations: list[Citation]
     grounded: bool
+    generated: bool
     correlation_id: str
 
 
@@ -82,6 +83,7 @@ def _answer(body: dict[str, Any]) -> Answer:
         text=body["answer"],
         citations=[Citation(**citation) for citation in body["citations"]],
         grounded=body["grounded"],
+        generated=body["generated"],
         correlation_id=body["correlation_id"],
     )
 

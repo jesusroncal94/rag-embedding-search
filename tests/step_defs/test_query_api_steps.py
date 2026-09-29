@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from app.config import Config
 from app.providers import GeminiGenerationProvider, ProviderError, ProviderTimeout
-from app.rag import INSUFFICIENT_CONTEXT_ANSWER
+from app.rag import INSUFFICIENT_CONTEXT_ANSWER, SOURCES_ONLY_ANSWER
 from tests.conftest import (
     FEATURES_DIR,
     LEXICAL_FLOOR,
@@ -20,6 +21,7 @@ from tests.conftest import (
     seed_corpus,
     wire_ctx,
     with_retrieval,
+    with_runtime,
 )
 
 pytestmark = pytest.mark.unit
@@ -264,3 +266,82 @@ def _logs_share_correlation_id(ctx):
 @then(parsers.parse('the response "correlation_id" is "{value}"'))
 def _correlation_id_is(ctx, value):
     assert _body(ctx)["correlation_id"] == value
+
+
+@given(parsers.re(r'"runtime\.(?P<key>breaker_\w+)" is (?P<value>\d+)'))
+def _set_breaker(ctx, key, value):
+    ctx["config"] = with_runtime(ctx["config"], **{key: int(value)})
+
+
+@given("the Gemini generation endpoint fails once and then recovers")
+def _generation_recovers(ctx):
+    ctx["generator"] = FakeGenerator(failures=[ProviderError("generate", "upstream call failed")])
+
+
+@given("the Gemini embedding endpoint keeps failing")
+def _embedding_down(ctx):
+    ctx["embedder"] = FakeEmbedder(
+        failures=[ProviderError("embed", "upstream call failed") for _ in range(10)]
+    )
+
+
+def _post_repeatedly(ctx, question: str, times: int, pause_s: float = 0.0) -> None:
+    client = wire_ctx(ctx)
+    ctx["responses"] = []
+    for attempt in range(times):
+        if attempt and pause_s:
+            time.sleep(pause_s)
+        ctx["responses"].append(client.post("/api/v1/query", json={"question": question}))
+
+
+@when(parsers.parse('I POST the question "{question}" {times:d} times'))
+def _post_times(ctx, question, times):
+    _post_repeatedly(ctx, question, times)
+
+
+@when(parsers.parse('I POST the question "{question}", wait {ms:d} ms, and POST it again'))
+def _post_after_pause(ctx, question, ms):
+    _post_repeatedly(ctx, question, 2, pause_s=ms / 1000)
+
+
+@then(parsers.parse("the first {n:d} responses are {code:d}"))
+def _first_responses(ctx, n, code):
+    assert [r.status_code for r in ctx["responses"][:n]] == [code] * n
+
+
+@then("every response is 502")
+def _every_response_502(ctx):
+    assert {r.status_code for r in ctx["responses"]} == {502}
+
+
+@then('the last response is 200 with "generated" false and the retrieved sections as citations')
+def _sources_only(ctx):
+    last = ctx["responses"][-1]
+    assert last.status_code == 200
+    body = last.json()
+    assert body["generated"] is False
+    assert body["answer"] == SOURCES_ONLY_ANSWER
+    assert body["citations"]
+
+
+@then('the last response is 200 with "generated" true')
+def _generated_again(ctx):
+    last = ctx["responses"][-1]
+    assert last.status_code == 200
+    assert last.json()["generated"] is True
+
+
+@then(parsers.parse("the model was called {n:d} times"))
+def _model_calls(ctx, n):
+    assert ctx["generator"].call_count == n
+
+
+@then(parsers.parse("the embedding provider was called {n:d} times"))
+def _embedding_calls(ctx, n):
+    assert ctx["embedder"].attempts == n
+
+
+@then(parsers.parse('a log line reports that the "{stage}" circuit {state}'))
+def _circuit_logged(ctx, stage, state):
+    events = ctx["logs"].events(f"provider.circuit_{state}")
+    assert [event["stage"] for event in events] == [stage]
