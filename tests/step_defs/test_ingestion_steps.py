@@ -16,6 +16,24 @@ class _Transient503(Exception):
     code = 503
 
 
+class _RateLimited(Exception):
+    code = 429
+
+    def __init__(self, *rpc_details: dict) -> None:
+        super().__init__("429 RESOURCE_EXHAUSTED")
+        self.details = {"error": {"code": 429, "details": list(rpc_details)}}
+
+
+_DAILY_QUOTA = {
+    "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+    "violations": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}],
+}
+
+
+def _retry_info(delay: str) -> dict:
+    return {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": delay}
+
+
 @pytest.fixture
 def ctx(tmp_path, write_config, monkeypatch, log_capture):
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
@@ -134,6 +152,20 @@ def _batch_size(ctx, size):
 def _transient_failures(ctx, n):
     _write_doc(ctx, "doc.md", "c" * 400)
     ctx["embedder"] = FakeEmbedder(failures=[_Transient503() for _ in range(n)])
+
+
+@given(parsers.parse('the embedding API answers 429 once, asking for a retry after "{delay}"'))
+def _rate_limited_once(ctx, delay):
+    _write_doc(ctx, "doc.md", "c" * 400)
+    ctx["embedder"] = FakeEmbedder(failures=[_RateLimited(_retry_info(delay))])
+
+
+@given("the embedding API answers 429 because the daily quota is exhausted")
+def _daily_quota_exhausted(ctx):
+    _write_doc(ctx, "doc.md", "c" * 400)
+    ctx["embedder"] = FakeEmbedder(
+        failures=[_RateLimited(_DAILY_QUOTA, _retry_info("0.01s")) for _ in range(10)]
+    )
 
 
 @given("the embedding API fails with a 401 on every attempt")
@@ -278,6 +310,22 @@ def _embedding_calls(ctx, n):
 @then("ingestion completes successfully")
 def _ingest_ok(ctx):
     assert ctx["exit_code"] == 0
+
+
+@then(parsers.parse("1 retry event is logged, waiting {ms:d} ms"))
+def _one_retry_waiting(ctx, ms):
+    retries = ctx["logs"].events("provider.retry")
+    assert [event["backoff_ms"] for event in retries] == [ms]
+
+
+@then("no retry event is logged")
+def _no_retry(ctx):
+    assert ctx["logs"].events("provider.retry") == []
+
+
+@then(parsers.parse("exactly {n:d} embedding API call was attempted"))
+def _attempted(ctx, n):
+    assert ctx["embedder"].attempts == n
 
 
 @then(parsers.parse("{n:d} retry events are logged with increasing backoff"))

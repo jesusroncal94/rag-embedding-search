@@ -74,14 +74,20 @@ class FakeEmbedder:
         self.query_calls: list[str] = []
         self._failures = list(failures or [])
         self._max_retries = max_retries
+        self.attempts = 0
 
     def _maybe_fail(self) -> None:
+        self.attempts += 1
         if self._failures:
             raise self._failures.pop(0)
 
     def _guarded(self, operation):
         return with_retries(
-            operation, stage="embed", max_retries=self._max_retries, backoff_base_ms=1
+            operation,
+            stage="embed",
+            max_retries=self._max_retries,
+            backoff_base_ms=1,
+            max_wait_ms=1_000,
         )
 
     def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:

@@ -80,6 +80,28 @@ Feature: Document ingestion into the vector store
     Then ingestion completes successfully
     And 2 retry events are logged with increasing backoff
 
+  # FR-ING-08a — the quota ran out twice because 429s were retried on the backoff schedule
+  Scenario: A rate limit waits as long as the provider asks
+    Given the embedding API answers 429 once, asking for a retry after "0.05s"
+    When I run the ingestion script
+    Then ingestion completes successfully
+    And 1 retry event is logged, waiting 50 ms
+
+  # FR-ING-08a
+  Scenario: An exhausted daily quota is not retried
+    Given the embedding API answers 429 because the daily quota is exhausted
+    When I run the ingestion script
+    Then the script exits with a non-zero status
+    And no retry event is logged
+    And exactly 1 embedding API call was attempted
+
+  # FR-ING-08a
+  Scenario: A rate limit longer than the allowed wait is not waited out
+    Given the embedding API answers 429 once, asking for a retry after "3600s"
+    When I run the ingestion script
+    Then the script exits with a non-zero status
+    And no retry event is logged
+
   # FR-ING-08
   Scenario: Permanent embedding failure aborts the run
     Given the embedding API fails with a 401 on every attempt

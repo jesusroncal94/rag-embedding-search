@@ -112,6 +112,7 @@ scenario in `docs/spec/features/`.
 | FR-ING-06a | *(v0.2)* The collection MUST record the embedding model name and dimensionality in its own metadata. |
 | FR-ING-07 | Embedding calls MUST be batched to `embed_batch_size` chunks per request. |
 | FR-ING-08 | A transient embedding API failure MUST be retried with exponential backoff up to `max_retries`; permanent failure MUST abort ingestion with a non-zero exit code and a structured error log. |
+| FR-ING-08a | *(v0.5)* A 429 MUST NOT be retried sooner than the provider asks (`Retry-After` or `RetryInfo`); one whose wait exceeds `request_timeout_ms`, or that reports an exhausted daily quota, MUST fail at once without retrying. Applies to generation as well as embedding. |
 | FR-ING-09 | Re-running ingestion MUST produce a corpus equivalent to a clean build (idempotent — collection is dropped and rebuilt). |
 | FR-ING-10 | The script MUST emit a structured summary on completion: documents processed, chunks produced, embedding calls made, wall-clock duration. |
 
@@ -493,7 +494,10 @@ git history from commit `2236297`, which records the repository as it stood that
 4. **The injection held** on the one question tried: the payload chunk was in the context at
    rank 2, the answer gave the real closure policy, and the detector fired.
 5. **Retries spend the quota that is limiting them.** The free tier allows 20 generation
-   requests a day; retrying 429s without honouring `Retry-After` exhausted it twice.
+   requests a day; retrying 429s without honouring `Retry-After` exhausted it twice. Fixed on
+   2026-09-29 (FR-ING-08a): a 429 waits as long as the provider asks, and a daily quota or a
+   wait longer than the request timeout fails at once. The unit tier drives it with the
+   `google.rpc` error details Gemini documents; a real 429 has not been observed since.
 6. **Streamlit and FastAPI cannot share an environment**: Streamlit 1.64 needs Starlette ≥ 0.46
    and FastAPI 0.115.6 allows < 0.42, so the ui has its own image and its own test image.
 7. **Search latency was not logged**, so there was no baseline for tuning HNSW. `retrieval.result`

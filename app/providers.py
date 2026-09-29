@@ -64,9 +64,46 @@ def _retryable(exc: Exception) -> bool:
     return _is_timeout(exc)
 
 
+def _rpc_details(exc: Exception) -> list[dict]:
+    body = getattr(exc, "details", None)
+    if not isinstance(body, dict):
+        return []
+    details = body.get("error", body).get("details", [])
+    return [item for item in details if isinstance(item, dict)]
+
+
+def _daily_quota_exhausted(exc: Exception) -> bool:
+    return any(
+        "PerDay" in str(violation.get("quotaId", ""))
+        for item in _rpc_details(exc)
+        for violation in item.get("violations", [])
+    )
+
+
+def _retry_after_ms(exc: Exception) -> int | None:
+    headers = getattr(getattr(exc, "response", None), "headers", None) or {}
+    header = headers.get("Retry-After")
+    if header and header.strip().isdigit():
+        return int(header) * 1000
+    for item in _rpc_details(exc):
+        delay = str(item.get("retryDelay", ""))
+        if delay.endswith("s"):
+            try:
+                return int(float(delay[:-1]) * 1000)
+            except ValueError:
+                return None
+    return None
+
+
 def with_retries(
-    operation: Callable[[], T], *, stage: Stage, max_retries: int, backoff_base_ms: int
+    operation: Callable[[], T],
+    *,
+    stage: Stage,
+    max_retries: int,
+    backoff_base_ms: int,
+    max_wait_ms: int,
 ) -> T:
+    """A 429 asks for less traffic: retrying it early spends the quota that is limiting us."""
     if max_retries < 1:
         raise ValueError("max_retries must be at least 1")
     attempt = 1
@@ -77,9 +114,17 @@ def with_retries(
             status = _status_of(exc)
             if status in (401, 403):
                 raise ProviderAuthError(stage, f"credentials rejected (HTTP {status})") from exc
+            if _daily_quota_exhausted(exc):
+                raise ProviderError(stage, "daily quota exhausted (HTTP 429)") from exc
+            retry_after_ms = _retry_after_ms(exc)
+            if retry_after_ms is not None and retry_after_ms > max_wait_ms:
+                raise ProviderError(
+                    stage, f"rate limited for {retry_after_ms} ms, longer than the wait allowed"
+                ) from exc
             if not _retryable(exc) or attempt == max_retries:
                 raise _as_provider_error(stage, exc) from exc
-            _wait_before_retry(stage, attempt, backoff_base_ms, exc)
+            delay_ms = retry_after_ms or _backoff_ms(attempt, backoff_base_ms)
+            _wait_before_retry(stage, attempt, delay_ms, exc)
             attempt += 1
 
 
@@ -89,9 +134,11 @@ def _as_provider_error(stage: Stage, exc: Exception) -> ProviderError:
     return ProviderError(stage, f"upstream call failed ({type(exc).__name__})")
 
 
-def _wait_before_retry(stage: Stage, attempt: int, backoff_base_ms: int, exc: Exception) -> None:
-    delay_ms = backoff_base_ms * (2 ** (attempt - 1))
-    delay_ms += random.uniform(0, backoff_base_ms * 0.1)
+def _backoff_ms(attempt: int, backoff_base_ms: int) -> float:
+    return backoff_base_ms * (2 ** (attempt - 1)) + random.uniform(0, backoff_base_ms * 0.1)
+
+
+def _wait_before_retry(stage: Stage, attempt: int, delay_ms: float, exc: Exception) -> None:
     log_event(
         logger,
         "provider.retry",
@@ -146,6 +193,7 @@ class GeminiEmbeddingProvider:
                 stage="embed",
                 max_retries=self._config.runtime.max_retries,
                 backoff_base_ms=self._config.runtime.backoff_base_ms,
+                max_wait_ms=self._config.runtime.request_timeout_ms,
             )
         log_event(
             logger,
@@ -204,6 +252,7 @@ class GeminiGenerationProvider:
                 stage="generate",
                 max_retries=self._config.runtime.max_retries,
                 backoff_base_ms=self._config.runtime.backoff_base_ms,
+                max_wait_ms=self._config.runtime.request_timeout_ms,
             )
 
         usage = getattr(response, "usage_metadata", None)

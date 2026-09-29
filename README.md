@@ -207,8 +207,7 @@ Deliberate, and discussed in SPEC.md §6–7 rather than hidden:
 - **The similarity floor is not calibrated.** Real embeddings score out-of-corpus questions
   at 0.50–0.57, above the 0.35 floor, so the deterministic refusal rarely fires and
   off-topic questions reach the model.
-- **Answers are not streamed**, and retries ignore `Retry-After`: on a rate limit they
-  spend the quota that is doing the limiting.
+- **Answers are not streamed.**
 - **Each search opens a new database connection.** Search takes about 14 ms, and about half
   of that is connecting; a pool would remove it.
 
@@ -222,6 +221,6 @@ Deliberate, and discussed in SPEC.md §6–7 rather than hidden:
 | `/health` returns 503 | Postgres not ready yet, or `docker compose down -v` cleared it. |
 | Answers are all "insufficient context" | The corpus was never ingested: `docker compose run --rm ingest`. |
 | Startup fails naming two embedding models | `config.yaml` changed model after ingestion. Re-run ingestion. |
-| Every answer is a 502 | Usually the provider quota: search the api logs for the response's correlation id and look for a 429. The free tier allows 20 generation requests a day. |
+| Every answer is a 502 | Usually the provider quota: search the api logs for the response's correlation id. `daily quota exhausted` means no retry will help until the quota resets. The free tier allows 20 generation requests a day. |
 | A 502 whose log line says `answer truncated at max_output_tokens` | The model's reasoning tokens count against `generation.max_output_tokens`. Raise it; 4096 leaves room on the current model. |
 | Generation fails with 404 | The configured model is retired for your project. Change `generation.model`, and run the `@live` tier before relying on it. |
