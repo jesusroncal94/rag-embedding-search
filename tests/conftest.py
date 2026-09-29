@@ -125,8 +125,9 @@ class FakeGenerator:
 
 
 class _FakeGenaiModels:
-    def __init__(self, answer: str) -> None:
+    def __init__(self, answer: str, finish_reason: str) -> None:
         self._answer = answer
+        self._finish_reason = finish_reason
 
     def embed_content(self, *, model: str, contents: list[str], config: object) -> SimpleNamespace:
         return SimpleNamespace(
@@ -137,9 +138,11 @@ class _FakeGenaiModels:
         self.last_config = config
         return SimpleNamespace(
             text=self._answer,
+            candidates=[SimpleNamespace(finish_reason=self._finish_reason)],
             usage_metadata=SimpleNamespace(
                 prompt_token_count=len(contents.split()),
                 candidates_token_count=len(self._answer.split()),
+                total_token_count=len(contents.split()) + len(self._answer.split()),
             ),
         )
 
@@ -147,8 +150,8 @@ class _FakeGenaiModels:
 class FakeGenaiClient:
     """Stands in for google.genai.Client, so the real Gemini adapters run end to end."""
 
-    def __init__(self, *, answer: str = "A grounded answer.") -> None:
-        self.models = _FakeGenaiModels(answer)
+    def __init__(self, *, answer: str = "A grounded answer.", finish_reason: str = "STOP") -> None:
+        self.models = _FakeGenaiModels(answer, finish_reason)
 
 
 class InMemoryStore:

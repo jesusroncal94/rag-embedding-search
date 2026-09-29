@@ -6,7 +6,7 @@ import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from app.config import Config
-from app.providers import ProviderError, ProviderTimeout
+from app.providers import GeminiGenerationProvider, ProviderError, ProviderTimeout
 from app.rag import INSUFFICIENT_CONTEXT_ANSWER
 from tests.conftest import (
     FEATURES_DIR,
@@ -14,6 +14,7 @@ from tests.conftest import (
     OUT_OF_CORPUS,
     REFUSING_FLOOR,
     FakeEmbedder,
+    FakeGenaiClient,
     FakeGenerator,
     InMemoryStore,
     seed_corpus,
@@ -24,6 +25,8 @@ from tests.conftest import (
 pytestmark = pytest.mark.unit
 
 scenarios(str(FEATURES_DIR / "query_api.feature"))
+
+TRUNCATED_ANSWER = "To dispute a transaction, open the"
 
 
 @pytest.fixture
@@ -70,6 +73,12 @@ def _generation_500(ctx):
 )
 def _generation_timeout(ctx):
     ctx["generator"] = FakeGenerator(error=ProviderTimeout("generate", "upstream timed out"))
+
+
+@given("the model stops at the output token limit mid-answer")
+def _generation_truncated(ctx):
+    client = FakeGenaiClient(answer=TRUNCATED_ANSWER, finish_reason="MAX_TOKENS")
+    ctx["generator"] = GeminiGenerationProvider(ctx["config"], client=client)
 
 
 @given("the vector database is unreachable")
@@ -217,6 +226,11 @@ def _no_leakage(ctx):
     assert "Traceback" not in raw
     assert 'File "' not in raw
     assert ctx["config"].gemini_api_key not in raw
+
+
+@then("the response body does not contain the truncated text")
+def _truncated_text_withheld(ctx):
+    assert TRUNCATED_ANSWER not in ctx["response"].text
 
 
 @then(parsers.parse('the failure is logged with stage "{stage}"'))

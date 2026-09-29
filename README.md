@@ -223,4 +223,5 @@ Deliberate, and discussed in SPEC.md §6–7 rather than hidden:
 | Answers are all "insufficient context" | The corpus was never ingested: `docker compose run --rm ingest`. |
 | Startup fails naming two embedding models | `config.yaml` changed model after ingestion. Re-run ingestion. |
 | Every answer is a 502 | Usually the provider quota: search the api logs for the response's correlation id and look for a 429. The free tier allows 20 generation requests a day. |
+| A 502 whose log line says `answer truncated at max_output_tokens` | The model's reasoning tokens count against `generation.max_output_tokens`. Raise it; 4096 leaves room on the current model. |
 | Generation fails with 404 | The configured model is retired for your project. Change `generation.model`, and run the `@live` tier before relying on it. |

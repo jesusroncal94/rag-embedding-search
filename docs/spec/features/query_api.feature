@@ -80,6 +80,14 @@ Feature: Retrieval-augmented question answering over the API
     Then the response status is 504
     And the failure is logged with stage "generate"
 
+  # FR-API-08b — found by the @live run on 2026-09-29
+  Scenario: An answer cut off at the output token limit is not served
+    Given the model stops at the output token limit mid-answer
+    When I POST to "/api/v1/query" with question "How do I deploy?"
+    Then the response status is 502
+    And the response body does not contain the truncated text
+    And the failure is logged with stage "generate"
+
   # FR-API-09
   Scenario: Health reflects dependency reachability
     When I GET "/health"

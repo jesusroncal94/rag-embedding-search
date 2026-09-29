@@ -33,7 +33,9 @@ generation:
   # against its recommended successor. Revert if run on a project that still has access.
   model: "gemini-3.6-flash"
   temperature: 0.0
-  max_output_tokens: 1024
+  # 3.6 Flash reasons before answering, and those tokens count against this limit: at 1024
+  # the visible answer was cut after about 40 tokens (observed 2026-09-29).
+  max_output_tokens: 4096
   prompt_template_path: "prompts/answer.md"
 
 runtime:

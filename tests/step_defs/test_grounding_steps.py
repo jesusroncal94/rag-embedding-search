@@ -220,7 +220,8 @@ def _states_not_covered(ctx):
 
 @then('the "answer" does not state a figure')
 def _no_figure(ctx):
-    assert not re.search(r"\d[\d,.]*\s*(eur|usd|jpy|yen|€|\$)", _lower(ctx))
+    answer = _lower(ctx)
+    assert not re.search(r"\d[\d,.]*\s*(%|percent|eur|usd|jpy|yen|€|\$)", answer), answer
 
 
 @then(parsers.re(r'the "answer" states (that )?the documentation does not contain the information'))

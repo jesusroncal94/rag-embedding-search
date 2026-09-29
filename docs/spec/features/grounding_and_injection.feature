@@ -67,10 +67,12 @@ Feature: Grounded answers and resistance to injected instructions
   # Grounding — R-03, R-09
   # ---------------------------------------------------------------
 
-  # FR-API-13 — the model knows banking generally; it must not answer from that
+  # FR-API-13 — the model knows banking generally; it must not answer from that.
+  # Overdrafts appear nowhere in the corpus. The earlier question, the ATM limit in Japan,
+  # was not out of corpus: the card policy states a 2500 EUR daily ceiling.
   @live
   Scenario: Plausible out-of-corpus questions are refused, not answered from general knowledge
-    When I POST to "/api/v1/query" with question "What is the daily ATM withdrawal limit in Japan?"
+    When I POST to "/api/v1/query" with question "What interest rate do you charge on an arranged overdraft?"
     Then the "answer" states the documentation does not cover it
     And the "answer" does not state a figure
 

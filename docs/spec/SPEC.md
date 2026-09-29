@@ -132,6 +132,7 @@ scenario in `docs/spec/features/`.
 | FR-API-07a | *(v0.2)* A question longer than `max_question_chars` MUST yield HTTP 400 naming the limit. |
 | FR-API-08 | An upstream provider failure MUST yield HTTP 502 with a correlation id, never a stack trace. |
 | FR-API-08a | *(v0.2)* A provider call exceeding `request_timeout_ms` MUST be aborted and yield HTTP 504, distinguishable from 502 in logs. |
+| FR-API-08b | *(v0.5)* An answer the provider stopped at the output-token limit MUST NOT be served: it yields HTTP 502 and is logged with stage `generate`. |
 | FR-API-09 | The service MUST expose `GET /health` reporting its own liveness and vector DB reachability. |
 | FR-API-10 | Every response MUST carry a correlation id, also present in that request's log lines. |
 | FR-API-10a | *(v0.2)* A caller-supplied `X-Correlation-Id` MUST be honoured and propagated rather than replaced. |
@@ -181,7 +182,7 @@ Critical events **only** — deliberately not a firehose.
 |---|---|---|
 | FR-LOG-01 | Service start | resolved config (secrets redacted), version |
 | FR-LOG-02 | Query failure | correlation id, stage (`embed`/`retrieve`/`generate`), error class |
-| FR-LOG-03 | LLM call latency | correlation id, model, duration_ms, token counts if available |
+| FR-LOG-03 | LLM call latency | correlation id, model, duration_ms, token counts if available (prompt, output, total), finish reason *(v0.5)* |
 | FR-LOG-04 | Embedding call latency | correlation id, duration_ms, batch size |
 | FR-LOG-05 | Retrieval outcome | correlation id, chunks returned, top score, below-threshold flag, search duration_ms *(v0.5)* |
 | FR-LOG-06 | Ingestion summary | per FR-ING-10 |
@@ -500,3 +501,14 @@ git history from commit `2236297`, which records the repository as it stood that
    against 290–430 ms for the embedding and 5.7–6.9 s for generation. About half of a search
    is opening a connection, because every search opens its own; the query is about 7 ms over
    25 chunks. At this scale HNSW tuning buys nothing, and a connection pool is the cheaper win.
+8. **Every answer was cut off, and served as a 200.** 3.6 Flash reasons before it answers, and
+   those tokens count against `max_output_tokens`. At 1024 the model stopped with
+   `MAX_TOKENS` after about 40 visible tokens; answers that happened to contain the expected
+   phrase early still passed. `max_output_tokens` is now 4096, a truncated answer is a 502
+   (FR-API-08b), and `llm.latency` logs the finish reason and total tokens (FR-LOG-03).
+9. **The first full `@live` run, on 2026-09-29, passed 17 of 17** once item 8 was fixed. The
+   out-of-corpus scenario had asked for the ATM limit in Japan, which the corpus does cover
+   with its 2500 EUR daily ceiling; it now asks about overdraft interest, which the corpus
+   never mentions, and treats a percentage as a stated figure. Across 28 calls a request
+   averaged about 910 prompt tokens, 60 visible output tokens and 500 reasoning tokens, so
+   about 0.3 US cents at the 2026 paid price.

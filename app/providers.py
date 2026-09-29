@@ -104,6 +104,12 @@ def _wait_before_retry(stage: Stage, attempt: int, backoff_base_ms: int, exc: Ex
     time.sleep(delay_ms / 1000.0)
 
 
+def _finish_reason(response: object) -> str | None:
+    candidates = getattr(response, "candidates", None) or []
+    reason = getattr(candidates[0], "finish_reason", None) if candidates else None
+    return getattr(reason, "name", reason)
+
+
 def _gemini_client(config: Config) -> Any:
     from google import genai
 
@@ -201,6 +207,7 @@ class GeminiGenerationProvider:
             )
 
         usage = getattr(response, "usage_metadata", None)
+        finish_reason = _finish_reason(response)
         log_event(
             logger,
             "llm.latency",
@@ -208,7 +215,11 @@ class GeminiGenerationProvider:
             model=self._model,
             prompt_tokens=getattr(usage, "prompt_token_count", None),
             output_tokens=getattr(usage, "candidates_token_count", None),
+            total_tokens=getattr(usage, "total_token_count", None),
+            finish_reason=finish_reason,
         )
+        if finish_reason == "MAX_TOKENS":
+            raise ProviderError("generate", "answer truncated at max_output_tokens")
         if not text:
             raise ProviderError("generate", "provider returned an empty response")
         return text
