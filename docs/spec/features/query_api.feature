@@ -107,6 +107,15 @@ Feature: Retrieval-augmented question answering over the API
     Then every response is 502
     And the embedding provider was called 2 times
 
+  # FR-API-14a — the retry budget is shared by every request to one provider
+  Scenario: Retries stop once the shared retry budget is spent
+    Given the embedding retry budget holds 4 tokens
+    And the Gemini embedding endpoint keeps failing with a 503
+    When I POST the question "How do I dispute a transaction?" 3 times
+    Then every response is 502
+    And the embedding provider was called 4 times
+    And a log line reports that the "embed" retry budget is spent
+
   # FR-API-08b — found by the @live run on 2026-09-29
   Scenario: An answer cut off at the output token limit is not served
     Given the model stops at the output token limit mid-answer

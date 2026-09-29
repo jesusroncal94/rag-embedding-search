@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import random
+import threading
 import time
 from collections.abc import Callable, Sequence
 from typing import Any, Literal, Protocol, TypeVar
@@ -95,6 +96,29 @@ def _retry_after_ms(exc: Exception) -> int | None:
     return None
 
 
+class RetryBudget:
+    """gRPC-style retry throttling, shared by every request to one provider in this process.
+
+    Each retryable failure spends a token and each success earns token_ratio back; retries stop
+    while half the bucket or less is left, so a provider-wide outage is not multiplied by retries.
+    """
+
+    def __init__(self, *, max_tokens: int, token_ratio: float) -> None:
+        self._max_tokens = float(max_tokens)
+        self._token_ratio = token_ratio
+        self._tokens = float(max_tokens)
+        self._lock = threading.Lock()
+
+    def spend(self) -> bool:
+        with self._lock:
+            self._tokens = max(0.0, self._tokens - 1)
+            return self._tokens > self._max_tokens / 2
+
+    def earn(self) -> None:
+        with self._lock:
+            self._tokens = min(self._max_tokens, self._tokens + self._token_ratio)
+
+
 def with_retries(
     operation: Callable[[], T],
     *,
@@ -102,6 +126,7 @@ def with_retries(
     max_retries: int,
     backoff_base_ms: int,
     max_wait_ms: int,
+    budget: RetryBudget,
 ) -> T:
     """A 429 asks for less traffic: retrying it early spends the quota that is limiting us."""
     if max_retries < 1:
@@ -109,7 +134,7 @@ def with_retries(
     attempt = 1
     while True:
         try:
-            return operation()
+            result = operation()
         except Exception as exc:  # noqa: BLE001
             status = _status_of(exc)
             if status in (401, 403):
@@ -121,11 +146,20 @@ def with_retries(
                 raise ProviderError(
                     stage, f"rate limited for {retry_after_ms} ms, longer than the wait allowed"
                 ) from exc
-            if not _retryable(exc) or attempt == max_retries:
+            if not _retryable(exc):
+                raise _as_provider_error(stage, exc) from exc
+            within_budget = budget.spend()
+            if attempt == max_retries:
+                raise _as_provider_error(stage, exc) from exc
+            if not within_budget:
+                log_event(logger, "provider.retry_budget_spent", level=logging.WARNING, stage=stage)
                 raise _as_provider_error(stage, exc) from exc
             delay_ms = retry_after_ms or _backoff_ms(attempt, backoff_base_ms)
             _wait_before_retry(stage, attempt, delay_ms, exc)
             attempt += 1
+        else:
+            budget.earn()
+            return result
 
 
 def _as_provider_error(stage: Stage, exc: Exception) -> ProviderError:
@@ -157,6 +191,13 @@ def _finish_reason(response: object) -> str | None:
     return getattr(reason, "name", reason)
 
 
+def _retry_budget(config: Config) -> RetryBudget:
+    return RetryBudget(
+        max_tokens=config.runtime.retry_budget_tokens,
+        token_ratio=config.runtime.retry_budget_ratio,
+    )
+
+
 def _gemini_client(config: Config) -> Any:
     from google import genai
 
@@ -172,6 +213,7 @@ class GeminiEmbeddingProvider:
         self._types = types
         self._config = config
         self._client = client or _gemini_client(config)
+        self._retry_budget = _retry_budget(config)
         self._model = config.embedding.model
         self._dimensions = config.embedding.dimensions
 
@@ -197,6 +239,7 @@ class GeminiEmbeddingProvider:
                 max_retries=self._config.runtime.max_retries,
                 backoff_base_ms=self._config.runtime.backoff_base_ms,
                 max_wait_ms=self._config.runtime.request_timeout_ms,
+                budget=self._retry_budget,
             )
         log_event(
             logger,
@@ -225,6 +268,7 @@ class GeminiGenerationProvider:
         self._types = types
         self._config = config
         self._client = client or _gemini_client(config)
+        self._retry_budget = _retry_budget(config)
         self._model = config.generation.model
         # No tools are passed, yet the SDK runs function calling by default and logs it to
         # the root logger on every call. maximum_remote_calls must be None, or disabling
@@ -256,6 +300,7 @@ class GeminiGenerationProvider:
                 max_retries=self._config.runtime.max_retries,
                 backoff_base_ms=self._config.runtime.backoff_base_ms,
                 max_wait_ms=self._config.runtime.request_timeout_ms,
+                budget=self._retry_budget,
             )
 
         usage = getattr(response, "usage_metadata", None)

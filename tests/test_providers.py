@@ -5,7 +5,7 @@ import logging
 import pytest
 from google.genai import _extra_utils
 
-from app.providers import GeminiEmbeddingProvider, GeminiGenerationProvider
+from app.providers import GeminiEmbeddingProvider, GeminiGenerationProvider, RetryBudget
 from tests.conftest import FakeGenaiClient
 
 pytestmark = pytest.mark.unit
@@ -31,3 +31,15 @@ def test_both_provider_calls_carry_the_configured_timeout(base_config):
     timeout = base_config.runtime.request_timeout_ms
     assert client.models.last_embed_config.http_options.timeout == timeout
     assert client.models.last_config.http_options.timeout == timeout
+
+
+def test_the_retry_budget_refills_on_success_up_to_its_size():
+    budget = RetryBudget(max_tokens=4, token_ratio=0.5)
+    assert budget.spend()
+    assert not budget.spend()
+
+    for _ in range(100):
+        budget.earn()
+
+    assert budget.spend()
+    assert not budget.spend()

@@ -80,6 +80,8 @@ class RuntimeConfig:
     request_timeout_ms: PositiveInt
     breaker_failure_threshold: PositiveInt
     breaker_open_ms: PositiveInt
+    retry_budget_tokens: PositiveInt
+    retry_budget_ratio: Annotated[float, Field(gt=0.0, le=1.0)]
     max_question_chars: PositiveInt
 
 

@@ -141,6 +141,7 @@ scenario in `docs/spec/features/`.
 | FR-API-12 | *(v0.3)* Instructions embedded in retrieved documents MUST NOT alter system behaviour. An injection attempt MUST yield the policy-correct answer and SHOULD be logged as a `prompt_injection_suspected` event. |
 | FR-API-13 | *(v0.3)* The answer MUST be derived only from retrieved context; the model MUST NOT supplement from parametric knowledge. Where context is partial, the answer MUST say what it does not cover. |
 | FR-API-14 | *(v0.5)* After `breaker_failure_threshold` consecutive failures of a provider, the service MUST stop calling it for `breaker_open_ms`, then let one trial call decide. While generation is stopped, a query MUST return HTTP 200 with the retrieved sections as citations, a fixed answer saying no answer was generated, and `generated: false`. While embedding is stopped, a query MUST fail at once with HTTP 502. Every response carries `generated`, true only when the model wrote the answer. |
+| FR-API-14a | *(v0.5)* Retries MUST draw on a budget shared by every request to the same provider: each retryable failure spends a token, each success earns `retry_budget_ratio` back, and no retry is made while half of `retry_budget_tokens` or less is left. |
 
 ### 3.3 Configuration (`FR-CFG-*`)
 
@@ -525,4 +526,8 @@ git history from commit `2236297`, which records the repository as it stood that
     api answers from retrieval alone (`generated: false`) and the ui labels it "Sources only";
     with embedding stopped it fails at once. Verified against Gemini with a nonexistent model
     name: two 502s, then a sources-only 200 without a model call. The breaker is in-process, so
-    each api replica counts its own failures.
+. **D4.2 finished: a retry budget per provider.** Per-request retries multiply an outage: with
+    three attempts each, every failing request tripled the load on a provider that was already
+    failing. Retries now draw on a bucket shared across requests, as gRPC retry throttling does;
+    once half of it is spent, failures are returned without retrying until successes refill it.
+    Like the breaker it is per process.

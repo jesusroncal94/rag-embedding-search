@@ -46,6 +46,10 @@ runtime:
   # trial call decides. While generation is open, queries return the retrieved sections only.
   breaker_failure_threshold: 5
   breaker_open_ms: 30000
+  # Retries share a bucket per provider: a retryable failure spends a token, a success earns
+  # retry_budget_ratio back, and no retry is made while half the bucket or less is left.
+  retry_budget_tokens: 10
+  retry_budget_ratio: 0.1
   max_question_chars: 2000
 
 logging:

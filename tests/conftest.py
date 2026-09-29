@@ -19,7 +19,7 @@ from app import api as api_module
 from app.chunking import chunk_text
 from app.config import Config, load_config
 from app.logging_setup import JsonFormatter, configure_logging
-from app.providers import EmbeddingProvider, GenerationProvider, with_retries
+from app.providers import EmbeddingProvider, GenerationProvider, RetryBudget, with_retries
 from app.rag import RagService
 from app.store import CollectionInfo, RetrievedChunk
 
@@ -69,7 +69,14 @@ def _fake_vector(text: str) -> list[float]:
 class FakeEmbedder:
     """Runs through the production with_retries, so retry behaviour is the real policy."""
 
-    def __init__(self, *, failures: list[Exception] | None = None, max_retries: int = 3) -> None:
+    def __init__(
+        self,
+        *,
+        failures: list[Exception] | None = None,
+        max_retries: int = 3,
+        budget: RetryBudget | None = None,
+    ) -> None:
+        self._budget = budget or RetryBudget(max_tokens=1_000, token_ratio=0.1)
         self.document_calls: list[list[str]] = []
         self.query_calls: list[str] = []
         self._failures = list(failures or [])
@@ -88,6 +95,7 @@ class FakeEmbedder:
             max_retries=self._max_retries,
             backoff_base_ms=1,
             max_wait_ms=1_000,
+            budget=self._budget,
         )
 
     def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:

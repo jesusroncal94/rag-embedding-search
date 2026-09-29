@@ -272,6 +272,7 @@ def _only_critical_events(ctx):
         "embedding.latency",
         "llm.latency",
         "provider.retry",
+        "provider.retry_budget_spent",
         "provider.circuit_opened",
         "provider.circuit_closed",
         "query.sources_only",

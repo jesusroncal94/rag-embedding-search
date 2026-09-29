@@ -7,7 +7,7 @@ import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from app.config import Config
-from app.providers import GeminiGenerationProvider, ProviderError, ProviderTimeout
+from app.providers import GeminiGenerationProvider, ProviderError, ProviderTimeout, RetryBudget
 from app.rag import INSUFFICIENT_CONTEXT_ANSWER, SOURCES_ONLY_ANSWER
 from tests.conftest import (
     FEATURES_DIR,
@@ -345,3 +345,26 @@ def _embedding_calls(ctx, n):
 def _circuit_logged(ctx, stage, state):
     events = ctx["logs"].events(f"provider.circuit_{state}")
     assert [event["stage"] for event in events] == [stage]
+
+
+class _Transient503(Exception):
+    code = 503
+
+
+@given(parsers.parse("the embedding retry budget holds {tokens:d} tokens"))
+def _retry_budget(ctx, tokens):
+    ctx["retry_budget"] = RetryBudget(max_tokens=tokens, token_ratio=0.1)
+
+
+@given("the Gemini embedding endpoint keeps failing with a 503")
+def _embedding_503(ctx):
+    ctx["embedder"] = FakeEmbedder(
+        failures=[_Transient503() for _ in range(20)], budget=ctx["retry_budget"]
+    )
+
+
+@then(parsers.parse('a log line reports that the "{stage}" retry budget is spent'))
+def _budget_spent_logged(ctx, stage):
+    events = ctx["logs"].events("provider.retry_budget_spent")
+    assert events
+    assert {event["stage"] for event in events} == {stage}
