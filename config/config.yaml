@@ -62,3 +62,6 @@ database:
   # Overridden by DATABASE_URL env var when present (compose sets it).
   url: "postgresql://rag:rag@localhost:5432/rag"
   collection_name: "docs"
+  # Connections are pooled; a request waits at most pool_timeout_ms for one before failing.
+  pool_max_size: 5
+  pool_timeout_ms: 1000

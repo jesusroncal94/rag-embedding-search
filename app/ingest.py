@@ -102,7 +102,10 @@ def run(config_path: str | None = None, source_dir: str | None = None) -> ExitCo
     vectors, embedding_calls = _embed(
         chunks, GeminiEmbeddingProvider(config), config.embedding.embed_batch_size
     )
-    chunk_count = store.replace_collection(chunks, vectors)
+    try:
+        chunk_count = store.replace_collection(chunks, vectors)
+    finally:
+        store.close()
 
     log_event(
         logger,

@@ -97,6 +97,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     log_event(logger, "service.start", version=__version__, config=config.redacted())
     yield
+    store.close()
     log_event(logger, "service.stop", version=__version__)
 
 

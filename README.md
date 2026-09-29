@@ -211,8 +211,8 @@ Deliberate, and discussed in SPEC.md §6–7 rather than hidden:
   at 0.50–0.57, above the 0.35 floor, so the deterministic refusal rarely fires and
   off-topic questions reach the model.
 - **Answers are not streamed.**
-- **Each search opens a new database connection.** Search takes about 14 ms, and about half
-  of that is connecting; a pool would remove it.
+- **Resilience state is per process.** The connection pool, the circuit breakers and the
+  retry budgets live in each api process, so replicas do not share them.
 
 ---
 

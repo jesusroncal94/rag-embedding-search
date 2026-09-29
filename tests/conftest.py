@@ -191,6 +191,9 @@ class InMemoryStore:
     def initialise(self) -> None:
         return None
 
+    def close(self) -> None:
+        return None
+
     def ping(self) -> bool:
         return self.reachable
 

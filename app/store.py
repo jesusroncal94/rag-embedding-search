@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import logging
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 import psycopg
 from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool, PoolTimeout
 
 from app.chunking import Chunk
 from app.config import Config
@@ -69,6 +73,11 @@ CREATE INDEX IF NOT EXISTS chunks_collection_idx ON chunks (collection);
 """
 
 
+def _register_vector(conn: psycopg.Connection) -> None:
+    register_vector(conn)
+    conn.commit()
+
+
 class VectorStore:
     def __init__(self, config: Config) -> None:
         self._config = config
@@ -76,6 +85,8 @@ class VectorStore:
         self._collection = config.database.collection_name
         self._dimensions = config.embedding.dimensions
         self._model = config.embedding.model
+        self._pool: ConnectionPool | None = None
+        self._pool_lock = threading.Lock()
 
     def _open(self) -> psycopg.Connection:
         try:
@@ -83,10 +94,33 @@ class VectorStore:
         except psycopg.Error as exc:
             raise StoreError(f"vector database unreachable: {type(exc).__name__}") from exc
 
-    def _connect(self) -> psycopg.Connection:
-        conn = self._open()
-        register_vector(conn)
-        return conn
+    def _connection_pool(self) -> ConnectionPool:
+        """Opened on first use, because the pgvector adapter cannot register before initialise()."""
+        with self._pool_lock:
+            if self._pool is None:
+                self._pool = ConnectionPool(
+                    self._url,
+                    min_size=1,
+                    max_size=self._config.database.pool_max_size,
+                    kwargs={"row_factory": dict_row},
+                    configure=_register_vector,
+                    check=ConnectionPool.check_connection,
+                    open=True,
+                )
+            return self._pool
+
+    @contextmanager
+    def _connect(self) -> Iterator[psycopg.Connection]:
+        timeout_s = self._config.database.pool_timeout_ms / 1000
+        try:
+            with self._connection_pool().connection(timeout=timeout_s) as conn:
+                yield conn
+        except PoolTimeout as exc:
+            raise StoreError(f"vector database unreachable: {type(exc).__name__}") from exc
+
+    def close(self) -> None:
+        if self._pool is not None:
+            self._pool.close()
 
     def initialise(self) -> None:
         """Uses a bare connection: the pgvector adapter cannot register before CREATE EXTENSION."""

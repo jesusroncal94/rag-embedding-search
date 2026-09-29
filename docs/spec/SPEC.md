@@ -531,3 +531,10 @@ git history from commit `2236297`, which records the repository as it stood that
     failing. Retries now draw on a bucket shared across requests, as gRPC retry throttling does;
     once half of it is spent, failures are returned without retrying until successes refill it.
     Like the breaker it is per process.
+13. **D4.3's connection pool.** Every search, health check and ingestion opened its own
+    connection, about half of each search's 13–19 ms. Connections now come from a
+    `psycopg_pool` pool (`pool_max_size`, `pool_timeout_ms`), each checked on checkout.
+    Measured on the same eight questions: 5–8 ms per search. With Postgres stopped, `/health`
+    now waits for `pool_timeout_ms` before its 503; at 3000 that matched the ui's 3 s health
+    timeout, so the ui would have reported the api unreachable, and the default is 1000. When
+    Postgres came back, the pool reconnected by itself within about 4 s.

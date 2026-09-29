@@ -96,6 +96,8 @@ class LoggingConfig:
 class DatabaseConfig:
     url: str
     collection_name: str
+    pool_max_size: PositiveInt
+    pool_timeout_ms: PositiveInt
 
 
 @dataclass(config=_frozen)
