@@ -183,6 +183,9 @@ class GeminiEmbeddingProvider:
                 config=self._types.EmbedContentConfig(
                     task_type=task_type,
                     output_dimensionality=self._dimensions,
+                    http_options=self._types.HttpOptions(
+                        timeout=self._config.runtime.request_timeout_ms
+                    ),
                 ),
             )
             return [list(item.values) for item in response.embeddings]

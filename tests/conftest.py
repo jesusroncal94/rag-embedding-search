@@ -136,6 +136,7 @@ class _FakeGenaiModels:
         self._finish_reason = finish_reason
 
     def embed_content(self, *, model: str, contents: list[str], config: object) -> SimpleNamespace:
+        self.last_embed_config = config
         return SimpleNamespace(
             embeddings=[SimpleNamespace(values=_fake_vector(text)) for text in contents]
         )

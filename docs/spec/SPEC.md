@@ -516,3 +516,6 @@ git history from commit `2236297`, which records the repository as it stood that
    never mentions, and treats a percentage as a stated figure. Across 28 calls a request
    averaged about 910 prompt tokens, 60 visible output tokens and 500 reasoning tokens, so
    about 0.3 US cents at the 2026 paid price.
+10. **FR-API-08a only held for generation.** The embedding call had no timeout, so a hung
+    embedding request could hold a query, or an ingestion batch, indefinitely. Both calls now
+    pass `request_timeout_ms`, and a unit test asserts it on each request.
