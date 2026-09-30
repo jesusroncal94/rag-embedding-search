@@ -425,7 +425,7 @@ def _inspect_image(ctx):
         check=False,
     ).stdout.strip()
     ctx["image_history"] = subprocess.run(
-        ["docker", "image", "history", "--no-trunc", "rag-pipeline-test-api"],
+        ["docker", "image", "history", "--no-trunc", "rag-embedding-search-api"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

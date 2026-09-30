@@ -1,4 +1,4 @@
-# Documentation Q&A — RAG Pipeline PoC
+# RAG Embedding Search — Documentation Q&A PoC
 
 A containerized proof of concept validating a fixed pipeline: **paragraph
 chunking → Gemini Embedding → pgvector retrieval → Gemini 2.5 Flash**, exposed as a REST

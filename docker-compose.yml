@@ -1,3 +1,5 @@
+name: rag-embedding-search
+
 # FR-DOC-01..05. Usage:
 #   docker compose up -d           # database + API
 #   docker compose run --rm ingest # one-shot ingestion (A-04)

@@ -459,7 +459,7 @@ on a host with Python and Docker. On a host without Python they were verified by
 ```bash
 docker compose exec -T api id -un                         # FR-DOC-05a -> app (uid 999)
 docker compose exec -T api sh -c 'which gcc'              # FR-DOC-05  -> absent
-docker image history --no-trunc rag-pipeline-test-api \
+docker image history --no-trunc rag-embedding-search-api \
   | grep -c "AIza\|GEMINI_API_KEY"                        # NFR-04     -> 0
 docker compose logs api | grep -o '"gemini_api_key": "[^"]*"'  # FR-LOG-01 -> "***"
 curl -s localhost:8000/health                             # FR-DOC-01/02
