@@ -11,3 +11,4 @@ __pycache__/
 .pytest_cache/
 ui/tests/
 ui/pytest.ini
+docs/private/
