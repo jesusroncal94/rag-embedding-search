@@ -521,19 +521,19 @@ git history from commit `2236297`, which records the repository as it stood that
 10. **FR-API-08a only held for generation.** The embedding call had no timeout, so a hung
     embedding request could hold a query, or an ingestion batch, indefinitely. Both calls now
     pass `request_timeout_ms`, and a unit test asserts it on each request.
-11. **D4.2 built: a circuit breaker per provider, and sources-only answers.** Before, an outage
+11. **A circuit breaker per provider, and sources-only answers.** Before, an outage
     meant every request waited out its timeouts and retries. Now five consecutive failures stop
     calls to that provider for 30 s, then one trial call decides. With generation stopped the
     api answers from retrieval alone (`generated: false`) and the ui labels it "Sources only";
     with embedding stopped it fails at once. Verified against Gemini with a nonexistent model
     name: two 502s, then a sources-only 200 without a model call. The breaker is in-process, so
     each api replica counts its own failures.
-12. **D4.2 finished: a retry budget per provider.** Per-request retries multiply an outage: with
+12. **A retry budget per provider.** Per-request retries multiply an outage: with
     three attempts each, every failing request tripled the load on a provider that was already
     failing. Retries now draw on a bucket shared across requests, as gRPC retry throttling does;
     once half of it is spent, failures are returned without retrying until successes refill it.
     Like the breaker it is per process.
-13. **D4.3's connection pool.** Every search, health check and ingestion opened its own
+13. **A connection pool.** Every search, health check and ingestion opened its own
     connection, about half of each search's 13–19 ms. Connections now come from a
     `psycopg_pool` pool (`pool_max_size`, `pool_timeout_ms`), each checked on checkout.
     Measured on the same eight questions: 5–8 ms per search. With Postgres stopped, `/health`

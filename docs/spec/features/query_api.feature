@@ -80,7 +80,7 @@ Feature: Retrieval-augmented question answering over the API
     Then the response status is 504
     And the failure is logged with stage "generate"
 
-  # FR-API-14 — D4.2: fail fast and degrade, do not retry harder
+  # FR-API-14 — fail fast and degrade, do not retry harder
   Scenario: Repeated generation failures stop the model calls and return the sources only
     Given "runtime.breaker_failure_threshold" is 3
     And the Gemini generation endpoint returns a 500
