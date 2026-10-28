@@ -1,0 +1,28 @@
+_commit: v1.0.0
+_src_path: https://github.com/jesusroncal94/ai-delivery-standard.git
+adapters:
+- claude-code
+check_command: docker compose run --rm --build tests ruff check . && docker compose
+    run --rm tests ruff format --check . && docker compose run --rm tests && docker
+    compose run --rm --build ui-tests
+conventions:
+- 'Conventional commits: `<type>(<scope>): <subject>`, imperative, lowercase, no trailing
+    period.'
+- One long-lived branch, `main`; short-lived feature branches; squash merges only,
+    with automatic branch deletion.
+- Never commit a key or token, not even a public one; it comes from an environment
+    variable set in CI.
+- 'Everything committed is in English: code, docs, commits and pull requests.'
+- Commits and pull requests carry no AI attribution trailers or footers.
+- Toolchains run in Docker (`docker compose run --rm ...`); task shortcuts are PowerShell
+    or shell scripts, never a Makefile.
+- 'READMEs follow: what it is, what it does, how it is organised, configuration, how
+    to run it, deliberate simplifications, licence.'
+level: 1
+local_only: false
+profile: service
+project_description: 'A containerized RAG proof of concept: paragraph chunking, Gemini
+    embeddings, pgvector retrieval and Gemini generation behind a REST API and a Streamlit
+    page.'
+project_name: rag-embedding-search
+standard_repo: https://github.com/jesusroncal94/ai-delivery-standard
