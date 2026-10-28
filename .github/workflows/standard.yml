@@ -27,9 +27,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Scan the whole history for secrets
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 detect --source /repo --no-banner --redact
 
   conformance:
     if: github.event_name != 'schedule'
@@ -40,7 +39,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install the checker
-        run: pip install "ai-delivery-standard @ git+https://github.com/jesusroncal94/ai-delivery-standard@v1.0.0#subdirectory=checker"
+        run: pip install "ai-delivery-standard @ git+https://github.com/jesusroncal94/ai-delivery-standard@v1.0.1#subdirectory=checker"
       - name: Conformance (ads check)
         run: ads check .
 
