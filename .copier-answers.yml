@@ -18,7 +18,7 @@ conventions:
     or shell scripts, never a Makefile.
 - 'READMEs follow: what it is, what it does, how it is organised, configuration, how
     to run it, deliberate simplifications, licence.'
-level: 1
+level: 2
 local_only: false
 profile: service
 project_description: 'A containerized RAG proof of concept: paragraph chunking, Gemini

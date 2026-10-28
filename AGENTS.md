@@ -2,7 +2,7 @@
 
 A containerized RAG proof of concept: paragraph chunking, Gemini embeddings, pgvector retrieval and Gemini generation behind a REST API and a Streamlit page.
 
-Profile `service`, level L1 of the [AI delivery standard](https://github.com/jesusroncal94/ai-delivery-standard). Keep this file under 200 lines: commands, gotchas and prohibitions only, nothing an agent can read from the code.
+Profile `service`, level L2 of the [AI delivery standard](https://github.com/jesusroncal94/ai-delivery-standard). Keep this file under 200 lines: commands, gotchas and prohibitions only, nothing an agent can read from the code.
 
 ## Commands
 
@@ -26,14 +26,17 @@ curl -s localhost:8000/health
 
 ## Definition of done
 
-1. The check command passes.
+1. The check command passes and the end-to-end steps of the feature's entries in `acceptance/features.json` pass.
 2. If a check was run differently or skipped, say so; never report a check you did not run. A change to retrieval, prompts or generation is not proven by `@unit` alone: say that `@live` was not run.
+3. A reviewer in a fresh context (the `review` skill) has read the diff against the spec and these rules.
+4. `progress.md` has a new entry of at most five lines; older entries move to `docs/progress-archive.md` once the file passes 5,000 tokens.
+5. Only a passing check sets `passes: true` in `acceptance/features.json`.
 
 ## Sessions
 
-- One deliverable per session: one acceptance entry, one spec, or one fix. Start from a brief.
+- One deliverable per session: one acceptance entry, one spec, or one fix. Start from a brief and the last entry in `progress.md`.
 - `/clear` or open a new session between unrelated tasks; after two failed corrections, stop and restart with a better prompt.
-- When context passes 200,000 tokens per call, write a handoff and continue in a fresh session. Do not fork long sessions.
+- When context passes 200,000 tokens per call, write a handoff (`handoff` skill) and continue in a fresh session. Do not fork long sessions.
 - Keep the model and effort fixed for the session. Use small-model subagents for broad reading and send back summaries, not file dumps.
 - Parallel sessions: one writer per worktree, on file-disjoint tasks; changes to a shared interface stay serial.
 
@@ -50,6 +53,7 @@ curl -s localhost:8000/health
 - Do not remove or "fix" the prompt-injection payload in `corpus/account-and-verification.md`. It is a planted test case; `test_injection_payload_survives_chunking_intact` guards it, and a chunking change that splits it makes the `@live` injection scenarios test nothing.
 - Do not run `@live` or `docker compose down -v` (it deletes the pgvector volume) without the human.
 - Do not change `generation.model`, `embedding.model` or `prompts/answer.md` without the human; a model or prompt change needs a `@live` run before anyone relies on it.
+- Do not change paths listed in `.standard/guarded-paths.txt` without the human; CI blocks them without the `human-approved` label.
 
 ## Portfolio conventions
 
@@ -67,6 +71,11 @@ curl -s localhost:8000/health
 - `docs/spec/SPEC.md`: the source of truth (requirements `FR-*`, ADR-001 to ADR-003 in §10, the implementation log in §11). The folder is `spec`, singular: `pytest.ini` and `tests/conftest.py` point at it, so do not move it.
 - `docs/spec/features/*.feature`: the executable acceptance suite, bound to `tests/step_defs/` by `pytest-bdd`. Renaming a scenario or a step breaks the binding.
 - `config/config.yaml`: every hyperparameter; `.env` (from `.env.example`): secrets only.
+- `acceptance/features.json`: human-owned acceptance criteria; agents may only flip `passes` after a passing check.
+- `progress.md`: the latest state between sessions.
+- `docs/specs/`: specs scaled to risk (full for data, auth, money or personal data; quick otherwise; none for one-line fixes).
+- `docs/adr/`: hard-to-reverse decisions; accepted ADRs change only through a superseding ADR.
+- `.agents/skills/`: repeatable workflows (`spec`, `build-slice`, `review`, `handoff`, `release`).
 
 ## Compatibility
 

@@ -1,0 +1,14 @@
+{
+  "features": [
+    {
+      "id": "F-001",
+      "spec": "docs/specs/F-001-example.md",
+      "description": "Replace with what a user can do when this passes",
+      "steps": [
+        "A concrete step a test can run",
+        "At least one negative step, for example another user cannot see the result"
+      ],
+      "passes": false
+    }
+  ]
+}
