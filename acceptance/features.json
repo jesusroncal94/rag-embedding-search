@@ -1,0 +1,70 @@
+{
+  "features": [
+    {
+      "id": "F-001",
+      "spec": "docs/spec/SPEC.md",
+      "description": "Ingestion chunks, embeds and indexes the corpus reproducibly (FR-ING-*, docs/spec/features/ingestion.feature)",
+      "steps": [
+        "bash scripts/check.sh runs the @unit scenarios of ingestion.feature and they pass",
+        "The planted injection payload survives chunking intact (tests/test_chunking.py)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "F-002",
+      "spec": "docs/spec/SPEC.md",
+      "description": "The query API answers with citations and maps errors to its contract (FR-API-*, docs/spec/features/query_api.feature)",
+      "steps": [
+        "bash scripts/check.sh runs the @unit scenarios of query_api.feature and they pass",
+        "A missing or blank question returns 400, not 422"
+      ],
+      "passes": true
+    },
+    {
+      "id": "F-003",
+      "spec": "docs/spec/SPEC.md",
+      "description": "Answers are grounded, context is fenced and a question below the similarity floor is refused without a model call (docs/spec/features/grounding_and_injection.feature)",
+      "steps": [
+        "bash scripts/check.sh runs the @unit scenarios of grounding_and_injection.feature and they pass"
+      ],
+      "passes": true
+    },
+    {
+      "id": "F-004",
+      "spec": "docs/spec/SPEC.md",
+      "description": "Configuration is validated at startup and logs are structured without secrets or answers (FR-CFG-*, FR-LOG-*, docs/spec/features/config_and_runtime.feature)",
+      "steps": [
+        "bash scripts/check.sh runs the @unit scenarios of config_and_runtime.feature and they pass"
+      ],
+      "passes": true
+    },
+    {
+      "id": "F-005",
+      "spec": "docs/spec/SPEC.md",
+      "description": "The Streamlit page renders answers, sources-only answers, refusals and errors from the API",
+      "steps": [
+        "bash scripts/check.sh runs the ui-tests service and it passes"
+      ],
+      "passes": true
+    },
+    {
+      "id": "F-006",
+      "spec": "docs/spec/SPEC.md",
+      "description": "Real model behaviour: exact figures, refusal of out-of-corpus questions, resistance to the planted injection (the @live tier; the closest thing to a golden set, there is no eval harness)",
+      "steps": [
+        "With the human: docker compose up -d && docker compose run --rm ingest",
+        "With the human: GEMINI_API_KEY=... API_BASE_URL=http://localhost:8000 pytest -m live passes"
+      ],
+      "passes": false
+    },
+    {
+      "id": "F-007",
+      "spec": "docs/spec/SPEC.md",
+      "description": "Compose startup, dependency ordering, volume persistence and a non-root image (the @docker tier)",
+      "steps": [
+        "On a host with Python and Docker: pytest -m docker passes, or the commands in SPEC.md section 11.4 give the stated results"
+      ],
+      "passes": false
+    }
+  ]
+}

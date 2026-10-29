@@ -1,0 +1,17 @@
+# Paths that need the human. Used by .claude/hooks/guard-paths.sh and scripts/check-gates.sh.
+# protect      <glob>  any change needs the human (hook blocks; CI needs the human-approved label)
+# append-only  <glob>  new files are fine; changing or deleting existing ones needs the human
+# Globs are relative to the repo root; * also matches /.
+
+protect      AGENTS.md
+protect      CLAUDE.md
+protect      .copier-answers.yml
+protect      .standard/*
+protect      .claude/settings.json
+protect      .claude/hooks/*
+protect      .github/*
+protect      scripts/check-gates.sh
+append-only  docs/adr/*
+append-only  migrations/*
+append-only  tests/*
+append-only  e2e/*
