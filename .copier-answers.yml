@@ -1,4 +1,4 @@
-_commit: v1.0.1
+_commit: v1.1.6
 _src_path: https://github.com/jesusroncal94/ai-delivery-standard.git
 adapters:
 - claude-code
@@ -18,6 +18,7 @@ conventions:
     or shell scripts, never a Makefile.
 - 'READMEs follow: what it is, what it does, how it is organised, configuration, how
     to run it, deliberate simplifications, licence.'
+diagrams: false
 level: 2
 local_only: false
 profile: service

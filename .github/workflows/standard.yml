@@ -39,7 +39,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install the checker
-        run: pip install "ai-delivery-standard @ git+https://github.com/jesusroncal94/ai-delivery-standard@v1.0.1#subdirectory=checker"
+        run: pip install "ai-delivery-standard @ git+https://github.com/jesusroncal94/ai-delivery-standard@v1.1.6#subdirectory=checker"
       - name: Conformance (ads check)
         run: ads check .
 
