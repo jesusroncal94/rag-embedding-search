@@ -2,6 +2,13 @@
 
 Newest entry first. At most five lines per session (ten for a handoff). Move older entries to `docs/progress-archive.md` when this file passes 5,000 tokens.
 
+## 2026-11-07 update to AI delivery standard 1.1.6
+
+- Done: `copier update` from v1.0.1 to v1.1.6 with `diagrams: false`; only the answers file and the checker pin in `standard.yml` changed, with no conflicts.
+- Verified with: the recorded `check_command` with a placeholder `GEMINI_API_KEY` (ruff, 70 unit, 2 ui) and `ads check` (conforms at L2); `@live` and `@docker` not run, and no fresh-context review was run.
+- Open issues: both changed files are guarded, so the `gates` job needs the `human-approved` label on the pull request.
+- Next step: the owner pushes the branch, opens the PR and adds the label.
+
 ## 2026-10-28 adopt the AI delivery standard (L2)
 
 - Done: standard v1.0.0 rendered as profile `service` at L2; AGENTS.md written from the repo; acceptance list F-001 to F-007 from the feature files and test tiers.
